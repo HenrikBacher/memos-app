@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "memos-app"
-include(":app")
+include(":app", ":shared")

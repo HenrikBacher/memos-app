@@ -5,8 +5,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * memos v1 API DTOs. Targets memos 0.22+ where resources are addressed by
- * resource names like "memos/{uid}". We deliberately keep most fields optional
- * because the upstream proto evolves and we don't want unknown fields to fail
+ * resource names like "memos/{uid}". Most fields are optional because the
+ * upstream proto evolves and we don't want unknown fields to fail
  * deserialization (the Json instance is configured ignoreUnknownKeys).
  */
 
@@ -44,3 +44,6 @@ data class ListMemosResponse(
     val memos: List<MemoDto> = emptyList(),
     val nextPageToken: String? = null,
 )
+
+/** Extract the uid from a resource name like "memos/abc123" → "abc123". */
+fun String.memoUid(): String = substringAfter('/', this)

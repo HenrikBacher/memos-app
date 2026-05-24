@@ -5,24 +5,22 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 import kotlinx.coroutines.launch
 import nu.bacher.memos.MainActivity
 import nu.bacher.memos.R
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.repo.MemoRepository
+import org.koin.android.ext.android.inject
 
 /**
  * Receives ACTION_SEND text. If the user is logged in, the text is posted
  * directly as a new memo. Otherwise we hand them off to MainActivity so they
  * can sign in first.
  */
-@AndroidEntryPoint
 class ShareReceiverActivity : ComponentActivity() {
 
-    @Inject lateinit var memoRepo: MemoRepository
-    @Inject lateinit var authStore: AuthStore
+    private val memoRepo: MemoRepository by inject()
+    private val authStore: AuthStore by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

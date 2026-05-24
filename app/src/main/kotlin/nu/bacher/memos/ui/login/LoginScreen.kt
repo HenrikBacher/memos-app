@@ -27,14 +27,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import nu.bacher.memos.R
+import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     onLoggedIn: () -> Unit,
-    vm: LoginViewModel = hiltViewModel(),
+    vm: LoginViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsState()
 

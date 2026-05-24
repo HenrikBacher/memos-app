@@ -45,13 +45,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import java.text.DateFormat
 import java.util.Date
 import nu.bacher.memos.R
 import nu.bacher.memos.data.db.ReminderEntity
 import nu.bacher.memos.ui.theme.memoCardColor
 import nu.bacher.memos.ui.theme.memoOnCardColor
+import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +59,7 @@ fun MemoListScreen(
     onOpenMemo: (String) -> Unit,
     onCreateMemo: () -> Unit,
     onLogout: () -> Unit,
-    vm: MemoListViewModel = hiltViewModel(),
+    vm: MemoListViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsState()
     var menuOpen by remember { mutableStateOf(false) }

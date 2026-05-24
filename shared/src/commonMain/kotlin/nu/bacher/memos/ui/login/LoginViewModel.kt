@@ -2,8 +2,6 @@ package nu.bacher.memos.ui.login
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -11,8 +9,7 @@ import kotlinx.coroutines.launch
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.repo.MemoRepository
 
-@HiltViewModel
-class LoginViewModel @Inject constructor(
+class LoginViewModel(
     private val authStore: AuthStore,
     private val memoRepo: MemoRepository,
 ) : ViewModel() {
@@ -47,8 +44,8 @@ class LoginViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             // Verify with a one-off request before saving — saving fires the
-            // AuthStore Flow listener and would otherwise navigate the user
-            // away from this screen mid-verify.
+            // AuthStore listener and would otherwise navigate the user away
+            // from this screen mid-verify.
             memoRepo.verifyCreds(url, token)
                 .onSuccess {
                     authStore.save(url, token)

@@ -2,8 +2,6 @@ package nu.bacher.memos.ui.edit
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -11,9 +9,9 @@ import kotlinx.coroutines.launch
 import nu.bacher.memos.data.db.ReminderEntity
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
+import nu.bacher.memos.util.currentTimeMillis
 
-@HiltViewModel
-class MemoEditViewModel @Inject constructor(
+class MemoEditViewModel(
     private val memoRepo: MemoRepository,
     private val reminderRepo: ReminderRepository,
 ) : ViewModel() {
@@ -106,7 +104,13 @@ class MemoEditViewModel @Inject constructor(
             } else {
                 // No memo id yet — hold the reminder in state until save().
                 _state.update {
-                    it.copy(reminder = ReminderEntity(memoName = "", triggerAtEpochMs = epochMs))
+                    it.copy(
+                        reminder = ReminderEntity(
+                            memoName = "",
+                            triggerAtEpochMs = epochMs,
+                            createdAtEpochMs = currentTimeMillis(),
+                        ),
+                    )
                 }
             }
         }

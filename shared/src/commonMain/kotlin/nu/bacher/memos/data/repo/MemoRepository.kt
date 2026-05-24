@@ -1,21 +1,16 @@
 package nu.bacher.memos.data.repo
 
-import java.io.IOException
-import java.util.concurrent.TimeUnit
-import javax.inject.Inject
-import javax.inject.Singleton
-import kotlinx.coroutines.Dispatchers
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.request.parameter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.withContext
 import nu.bacher.memos.data.api.CreateMemoRequest
 import nu.bacher.memos.data.api.MemoDto
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.UpdateMemoRequest
 import nu.bacher.memos.data.api.memoUid
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 /**
  * Thin wrapper around the memos API. The list is cached in-memory for the
@@ -23,9 +18,9 @@ import okhttp3.Request
  * memo cache to disk (memos itself is the source of truth and supports
  * multi-device editing).
  */
-@Singleton
-class MemoRepository @Inject constructor(
+class MemoRepository(
     private val api: MemosApi,
+    private val verifyClientFactory: (serverUrl: String, token: String) -> HttpClient,
 ) {
     private val _memos = MutableStateFlow<List<MemoDto>>(emptyList())
     val memos: Flow<List<MemoDto>> = _memos.asStateFlow()
@@ -54,33 +49,22 @@ class MemoRepository @Inject constructor(
     }
 
     /**
-     * Verifies a *candidate* server URL + token by hitting auth/status directly,
-     * without going through the Hilt-provided OkHttp client (which routes via
-     * AuthInterceptor using whatever is currently in AuthStore). Used by login
+     * Verifies a *candidate* server URL + token by listing memos directly,
+     * without going through the AuthStore-backed default client. Used by login
      * so we can validate creds before saving them — avoids saving bad creds and
-     * the navigation race where the SharedPreferences listener would otherwise
-     * flip isAuthenticated before verify completes.
+     * the navigation race where the settings listener would otherwise flip
+     * isAuthenticated before verify completes.
      */
-    suspend fun verifyCreds(serverUrl: String, token: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .readTimeout(10, TimeUnit.SECONDS)
-                    .build()
-                // Hit the memos-list endpoint with pageSize=1 instead of
-                // /auth/status — the latter was removed in memos 0.22+, and
-                // listing memos is the canonical "does this token work" probe.
-                val request = Request.Builder()
-                    .url("${serverUrl.trimEnd('/')}/api/v1/memos?pageSize=1")
-                    .header("Authorization", "Bearer $token")
-                    .header("Accept", "application/json")
-                    .build()
-                client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        throw IOException("HTTP ${resp.code} ${resp.message}")
-                    }
-                }
-            }
+    suspend fun verifyCreds(serverUrl: String, token: String): Result<Unit> = runCatching {
+        val client = verifyClientFactory(serverUrl, token)
+        try {
+            // Probing the memos-list endpoint with pageSize=1 — the older
+            // /auth/status endpoint was removed in memos 0.22+, and listing
+            // memos is the canonical "does this token work" check.
+            // expectSuccess=true on the client converts a non-2xx into a throw.
+            client.get("api/v1/memos") { parameter("pageSize", 1) }
+        } finally {
+            client.close()
         }
+    }
 }

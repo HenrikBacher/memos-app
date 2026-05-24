@@ -4,25 +4,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.ui.edit.MemoEditScreen
 import nu.bacher.memos.ui.list.MemoListScreen
 import nu.bacher.memos.ui.login.LoginScreen
+import org.koin.compose.viewmodel.koinViewModel
 
 object Routes {
     const val LOGIN = "login"
@@ -35,21 +25,12 @@ object Routes {
     }
 }
 
-@HiltViewModel
-class RootViewModel @Inject constructor(
-    authStore: AuthStore,
-) : ViewModel() {
-    val isAuthenticated: StateFlow<Boolean?> = authStore.config
-        .map { it != null }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-}
-
 @Composable
 fun MemosNavHost(
     initialMemoName: String? = null,
     openNewMemoOnStart: Boolean = false,
     initialContent: String? = null,
-    rootViewModel: RootViewModel = hiltViewModel(),
+    rootViewModel: RootViewModel = koinViewModel(),
 ) {
     val navController = rememberNavController()
     val authState by rootViewModel.isAuthenticated.collectAsState()

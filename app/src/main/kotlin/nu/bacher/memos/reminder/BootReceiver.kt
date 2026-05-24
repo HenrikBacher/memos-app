@@ -3,17 +3,16 @@ package nu.bacher.memos.reminder
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.repo.ReminderRepository
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
-@AndroidEntryPoint
-class BootReceiver : BroadcastReceiver() {
+class BootReceiver : BroadcastReceiver(), KoinComponent {
 
-    @Inject lateinit var reminderRepo: ReminderRepository
+    private val reminderRepo: ReminderRepository by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action

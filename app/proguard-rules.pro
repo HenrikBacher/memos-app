@@ -10,18 +10,13 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# OkHttp
+# OkHttp (Ktor engine)
 -dontwarn okhttp3.**
 -dontwarn okio.**
 
-# Retrofit
--dontwarn retrofit2.**
--keep class retrofit2.** { *; }
--keepattributes Signature, Exceptions
+# Ktor
+-dontwarn io.ktor.**
+-keep class io.ktor.client.engine.okhttp.** { *; }
 
-# Hilt / Dagger
--keep class dagger.hilt.** { *; }
--keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper
-
-# Room
--keep class androidx.room.RoomDatabase { *; }
+# SQLDelight Android driver
+-keep class app.cash.sqldelight.driver.android.** { *; }
