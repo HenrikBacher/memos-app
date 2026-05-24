@@ -5,10 +5,15 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 
-@Database(entities = [ReminderEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities = [ReminderEntity::class, MemoEntity::class],
+    version = 3,
+    exportSchema = false,
+)
 @ConstructedBy(MemosDatabaseConstructor::class)
 abstract class MemosDatabase : RoomDatabase() {
     abstract fun reminderDao(): ReminderDao
+    abstract fun memoDao(): MemoDao
 }
 
 // The Room compiler (via KSP) generates the actual implementations of this

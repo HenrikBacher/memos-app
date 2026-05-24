@@ -6,6 +6,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import nu.bacher.memos.data.api.AttachmentDto
+import nu.bacher.memos.data.api.memoUid
+import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.ReminderEntity
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
@@ -14,16 +17,23 @@ import nu.bacher.memos.util.currentTimeMillis
 class MemoEditViewModel(
     private val memoRepo: MemoRepository,
     private val reminderRepo: ReminderRepository,
+    private val authStore: AuthStore,
 ) : ViewModel() {
 
     data class State(
         val memoName: String? = null,
         val content: String = "",
+        val visibility: String = VISIBILITY_PRIVATE,
+        val attachments: List<AttachmentDto> = emptyList(),
         val reminder: ReminderEntity? = null,
         val loading: Boolean = true,
         val saving: Boolean = false,
+        /** True while an attachment upload is in flight. */
+        val uploading: Boolean = false,
         val error: String? = null,
         val finished: Boolean = false,
+        /** False renders content as markdown (links clickable); true opens the editor. */
+        val isEditing: Boolean = false,
     )
 
     private val _state = MutableStateFlow(State())
@@ -32,7 +42,11 @@ class MemoEditViewModel(
     fun load(memoName: String?, initialContent: String? = null) {
         viewModelScope.launch {
             if (memoName == null) {
-                _state.value = State(loading = false, content = initialContent.orEmpty())
+                _state.value = State(
+                    loading = false,
+                    content = initialContent.orEmpty(),
+                    isEditing = true,
+                )
                 return@launch
             }
             _state.update { it.copy(loading = true, memoName = memoName) }
@@ -42,8 +56,11 @@ class MemoEditViewModel(
                 _state.value = State(
                     memoName = memo.name,
                     content = memo.content,
+                    visibility = memo.visibility.ifBlank { VISIBILITY_PRIVATE },
+                    attachments = memo.attachments,
                     reminder = rem,
                     loading = false,
+                    isEditing = false,
                 )
             }.onFailure { t ->
                 _state.update { it.copy(loading = false, error = t.message) }
@@ -53,9 +70,45 @@ class MemoEditViewModel(
 
     fun setContent(text: String) = _state.update { it.copy(content = text) }
 
+    fun setEditing(editing: Boolean) = _state.update { it.copy(isEditing = editing) }
+
+    fun setVisibility(visibility: String) {
+        if (visibility !in ALL_VISIBILITIES) return
+        _state.update { it.copy(visibility = visibility) }
+    }
+
+    fun addAttachment(bytes: ByteArray, filename: String, type: String) {
+        if (bytes.size > MAX_ATTACHMENT_BYTES) {
+            _state.update { it.copy(error = ERROR_FILE_TOO_LARGE) }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(uploading = true, error = null) }
+            runCatching {
+                memoRepo.uploadAttachment(
+                    bytes = bytes,
+                    filename = filename,
+                    type = type,
+                    memoName = _state.value.memoName,
+                )
+            }.fold(
+                onSuccess = { attachment ->
+                    _state.update { it.copy(uploading = false, attachments = it.attachments + attachment) }
+                },
+                onFailure = { t ->
+                    _state.update { it.copy(uploading = false, error = t.message) }
+                },
+            )
+        }
+    }
+
+    fun removeAttachment(name: String) {
+        _state.update { s -> s.copy(attachments = s.attachments.filterNot { it.name == name }) }
+    }
+
     fun save() {
         val s = _state.value
-        if (s.content.isBlank() && s.memoName == null) {
+        if (s.content.isBlank() && s.memoName == null && s.attachments.isEmpty()) {
             _state.update { it.copy(finished = true) }
             return
         }
@@ -63,9 +116,18 @@ class MemoEditViewModel(
             _state.update { it.copy(saving = true, error = null) }
             runCatching {
                 val saved = if (s.memoName == null) {
-                    memoRepo.create(s.content)
+                    memoRepo.create(
+                        content = s.content,
+                        visibility = s.visibility,
+                        attachments = s.attachments,
+                    )
                 } else {
-                    memoRepo.update(s.memoName, s.content)
+                    memoRepo.update(
+                        name = s.memoName,
+                        content = s.content,
+                        visibility = s.visibility,
+                        attachments = s.attachments,
+                    )
                 }
                 // Reminder set against a placeholder "new" memo — re-key it
                 // under the real memo name now that we have one.
@@ -116,11 +178,34 @@ class MemoEditViewModel(
         }
     }
 
+    /**
+     * The memos web URL for the current memo, or null if the memo is unsaved
+     * or the auth config has been cleared. Callers fire ACTION_SEND with this.
+     * The link only resolves for non-PRIVATE memos; that's a server-side ACL
+     * concern, so we don't gate the share button on visibility here.
+     */
+    fun shareUrl(): String? {
+        val name = _state.value.memoName ?: return null
+        val server = authStore.read()?.serverUrl ?: return null
+        return "${server.trimEnd('/')}/m/${name.memoUid()}"
+    }
+
     fun clearReminder() {
         viewModelScope.launch {
             val name = _state.value.memoName
             if (name != null) reminderRepo.clear(name)
             _state.update { it.copy(reminder = null) }
         }
+    }
+
+    companion object {
+        const val VISIBILITY_PRIVATE = "PRIVATE"
+        const val VISIBILITY_PROTECTED = "PROTECTED"
+        const val VISIBILITY_PUBLIC = "PUBLIC"
+        val ALL_VISIBILITIES = listOf(VISIBILITY_PRIVATE, VISIBILITY_PROTECTED, VISIBILITY_PUBLIC)
+
+        /** 20 MB — base64 JSON encoding inflates this ~33% on the wire. */
+        const val MAX_ATTACHMENT_BYTES: Int = 20 * 1024 * 1024
+        const val ERROR_FILE_TOO_LARGE = "File too large (max 20 MB)"
     }
 }

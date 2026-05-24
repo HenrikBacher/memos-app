@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import nu.bacher.memos.ui.link.ProvideMemosUriHandler
 import nu.bacher.memos.ui.navigation.MemosNavHost
 import nu.bacher.memos.ui.theme.MemosTheme
 
@@ -19,11 +20,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MemosTheme {
-                MemosNavHost(
-                    initialMemoName = initialMemoName,
-                    openNewMemoOnStart = openNewMemo,
-                    initialContent = initialContent,
-                )
+                ProvideMemosUriHandler {
+                    MemosNavHost(
+                        initialMemoName = initialMemoName,
+                        openNewMemoOnStart = openNewMemo,
+                        initialContent = initialContent,
+                    )
+                }
             }
         }
     }

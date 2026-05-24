@@ -1,7 +1,10 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package nu.bacher.memos.data.api
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 
 /**
  * memos v1 API DTOs. Targets memos 0.22+ where resources are addressed by
@@ -23,12 +26,36 @@ data class MemoDto(
     @SerialName("displayTime") val displayTime: String? = null,
     val creator: String? = null,
     val tags: List<String> = emptyList(),
+    // memos renamed `resources` → `attachments` around 0.22; the alias keeps
+    // older self-hosted servers working without a manual version bump.
+    @JsonNames("resources")
+    val attachments: List<AttachmentDto> = emptyList(),
+)
+
+/**
+ * File attached to a memo. Server provides either a `name` like
+ * "attachments/{id}" served from the memos server, or an `externalLink` for
+ * resources stored elsewhere (S3, etc.).
+ */
+@Serializable
+data class AttachmentDto(
+    val name: String = "",
+    @SerialName("createTime") val createTime: String? = null,
+    val filename: String = "",
+    /** MIME type (e.g. "image/png", "application/pdf"). */
+    val type: String = "",
+    val size: Long = 0,
+    val externalLink: String? = null,
+    /** Parent memo resource name (when included). */
+    val memo: String? = null,
 )
 
 @Serializable
 data class CreateMemoRequest(
     val content: String,
     val visibility: String = "PRIVATE",
+    /** Reference existing attachments by name so the server links them on create. */
+    val attachments: List<AttachmentRef>? = null,
 )
 
 @Serializable
@@ -37,7 +64,30 @@ data class UpdateMemoRequest(
     val visibility: String? = null,
     val pinned: Boolean? = null,
     val state: String? = null,
+    /** Authoritative attachment list — server reconciles links/unlinks against this. */
+    val attachments: List<AttachmentRef>? = null,
 )
+
+/** A bare reference to an attachment by resource name (e.g. "attachments/abc"). */
+@Serializable
+data class AttachmentRef(val name: String)
+
+/**
+ * Upload payload. `content` is base64-encoded file bytes (proto bytes fields
+ * are mapped to base64 strings in JSON). `memo` is optional — leave null when
+ * creating an attachment for a memo that doesn't exist yet; the server will
+ * link it when the memo is created with a matching [AttachmentRef].
+ */
+@Serializable
+data class AttachmentCreate(
+    val filename: String,
+    val type: String,
+    val content: String,
+    val memo: String? = null,
+)
+
+@Serializable
+data class CreateAttachmentRequest(val attachment: AttachmentCreate)
 
 @Serializable
 data class ListMemosResponse(

@@ -40,7 +40,10 @@ class AuthStore(private val settings: ObservableSettings) {
     }
 
     fun clear() {
-        settings.clear()
+        // Only remove auth keys — settings.clear() would wipe unrelated
+        // preferences (layout, etc.) that should survive logout.
+        settings.remove(KEY_URL)
+        settings.remove(KEY_TOKEN)
     }
 
     private companion object {

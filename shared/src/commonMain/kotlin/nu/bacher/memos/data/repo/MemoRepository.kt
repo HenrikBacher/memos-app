@@ -4,48 +4,147 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlinx.serialization.builtins.ListSerializer
+import nu.bacher.memos.data.api.AttachmentCreate
+import nu.bacher.memos.data.api.AttachmentDto
+import nu.bacher.memos.data.api.AttachmentRef
+import nu.bacher.memos.data.api.CreateAttachmentRequest
 import nu.bacher.memos.data.api.CreateMemoRequest
 import nu.bacher.memos.data.api.MemoDto
 import nu.bacher.memos.data.api.MemosApi
+import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.api.UpdateMemoRequest
 import nu.bacher.memos.data.api.memoUid
+import nu.bacher.memos.data.db.MemoDao
+import nu.bacher.memos.data.db.MemoEntity
+import nu.bacher.memos.util.currentTimeMillis
 
 /**
- * Thin wrapper around the memos API. The list is cached in-memory for the
- * current process — refresh is explicit. We deliberately don't add a local
- * memo cache to disk (memos itself is the source of truth and supports
- * multi-device editing).
+ * Offline-first memos store. The Room cache is the UI's source of truth so the
+ * list renders instantly on cold start; [refresh] replaces the cache with the
+ * server's view, and create/update/delete write through to both.
+ *
+ * Server-side ordering is preserved via `orderInList` — the API's sort rules
+ * (pinned, displayTime, etc.) shift with memos versions, so we don't try to
+ * recreate them locally.
  */
 class MemoRepository(
     private val api: MemosApi,
+    private val dao: MemoDao,
     private val verifyClientFactory: (serverUrl: String, token: String) -> HttpClient,
 ) {
-    private val _memos = MutableStateFlow<List<MemoDto>>(emptyList())
-    val memos: Flow<List<MemoDto>> = _memos.asStateFlow()
+    val memos: Flow<List<MemoDto>> = dao.observeAll().map { rows -> rows.map(MemoEntity::toDto) }
 
-    suspend fun refresh(): Result<Unit> = runCatching {
-        _memos.value = api.listMemos().memos
+    private companion object {
+        const val MAX_REFRESH_PAGES = 200
     }
 
-    suspend fun get(name: String): MemoDto = api.getMemo(name.memoUid())
+    suspend fun refresh(): Result<Unit> = runCatching {
+        val all = mutableListOf<MemoDto>()
+        var token: String? = null
+        var iterations = 0
+        do {
+            val response = api.listMemos(pageToken = token)
+            all += response.memos
+            token = response.nextPageToken?.takeIf { it.isNotBlank() }
+            iterations++
+            // Safety cap — prevent a buggy server from pulling pages forever.
+            // 200 pages at the default pageSize=50 is 10k memos, well beyond
+            // what fits in memory comfortably anyway.
+        } while (token != null && iterations < MAX_REFRESH_PAGES)
+        val now = currentTimeMillis()
+        dao.replaceAll(all.mapIndexed { idx, dto -> dto.toEntity(idx, now) })
+    }
 
-    suspend fun create(content: String, visibility: String = "PRIVATE"): MemoDto {
-        val memo = api.createMemo(CreateMemoRequest(content = content, visibility = visibility))
-        _memos.value = listOf(memo) + _memos.value
+    suspend fun get(name: String): MemoDto {
+        val memo = api.getMemo(name.memoUid())
+        val cached = dao.get(memo.name)
+        dao.upsert(memo.toEntity(cached?.orderInList ?: Int.MAX_VALUE, currentTimeMillis()))
         return memo
     }
 
-    suspend fun update(name: String, content: String): MemoDto {
-        val updated = api.updateMemo(name.memoUid(), UpdateMemoRequest(content = content))
-        _memos.value = _memos.value.map { if (it.name == updated.name) updated else it }
+    suspend fun create(
+        content: String,
+        visibility: String = "PRIVATE",
+        attachments: List<AttachmentDto> = emptyList(),
+    ): MemoDto {
+        val memo = api.createMemo(
+            CreateMemoRequest(
+                content = content,
+                visibility = visibility,
+                attachments = attachments.takeIf { it.isNotEmpty() }
+                    ?.map { AttachmentRef(name = it.name) },
+            ),
+        )
+        // New memo lands at the top — shift existing rows down. Cheaper than
+        // re-fetching the whole list; the next refresh() will reconcile if the
+        // server's ordering disagrees.
+        val existing = dao.getAll().filter { it.name != memo.name }
+        dao.replaceAll(
+            buildList {
+                add(memo.toEntity(0, currentTimeMillis()))
+                existing.forEachIndexed { idx, row -> add(row.copy(orderInList = idx + 1)) }
+            },
+        )
+        return memo
+    }
+
+    suspend fun update(
+        name: String,
+        content: String,
+        visibility: String? = null,
+        attachments: List<AttachmentDto>? = null,
+    ): MemoDto {
+        val updated = api.updateMemo(
+            name.memoUid(),
+            UpdateMemoRequest(
+                content = content,
+                visibility = visibility,
+                attachments = attachments?.map { AttachmentRef(name = it.name) },
+            ),
+        )
+        val cached = dao.get(updated.name)
+        dao.upsert(updated.toEntity(cached?.orderInList ?: Int.MAX_VALUE, currentTimeMillis()))
         return updated
+    }
+
+    /**
+     * Uploads [bytes] as an attachment. When [memoName] is non-null the server
+     * links the attachment to that memo immediately; for new memos pass null
+     * here and reference the returned attachment by name in the next
+     * [create] call.
+     */
+    @OptIn(ExperimentalEncodingApi::class)
+    suspend fun uploadAttachment(
+        bytes: ByteArray,
+        filename: String,
+        type: String,
+        memoName: String? = null,
+    ): AttachmentDto {
+        val encoded = Base64.encode(bytes)
+        return api.createAttachment(
+            CreateAttachmentRequest(
+                AttachmentCreate(
+                    filename = filename,
+                    type = type,
+                    content = encoded,
+                    memo = memoName,
+                ),
+            ),
+        )
     }
 
     suspend fun delete(name: String) {
         api.deleteMemo(name.memoUid())
-        _memos.value = _memos.value.filterNot { it.name == name }
+        dao.delete(name)
+    }
+
+    /** Wipe the local cache. Called on logout. */
+    suspend fun clearCache() {
+        dao.clear()
     }
 
     /**
@@ -68,3 +167,40 @@ class MemoRepository(
         }
     }
 }
+
+private val AttachmentListSerializer = ListSerializer(AttachmentDto.serializer())
+
+private fun MemoDto.toEntity(orderInList: Int, cachedAtEpochMs: Long): MemoEntity =
+    MemoEntity(
+        name = name,
+        uid = uid,
+        content = content,
+        visibility = visibility,
+        state = state,
+        pinned = pinned,
+        createTime = createTime,
+        updateTime = updateTime,
+        displayTime = displayTime,
+        creator = creator,
+        tagsCsv = tags.joinToString(","),
+        attachmentsJson = if (attachments.isEmpty()) "" else MemosJson.encodeToString(AttachmentListSerializer, attachments),
+        orderInList = orderInList,
+        cachedAtEpochMs = cachedAtEpochMs,
+    )
+
+private fun MemoEntity.toDto(): MemoDto =
+    MemoDto(
+        name = name,
+        uid = uid,
+        content = content,
+        visibility = visibility,
+        state = state,
+        pinned = pinned,
+        createTime = createTime,
+        updateTime = updateTime,
+        displayTime = displayTime,
+        creator = creator,
+        tags = if (tagsCsv.isEmpty()) emptyList() else tagsCsv.split(','),
+        attachments = if (attachmentsJson.isEmpty()) emptyList()
+        else MemosJson.decodeFromString(AttachmentListSerializer, attachmentsJson),
+    )

@@ -8,6 +8,7 @@ import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.MemosDatabase
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
+import nu.bacher.memos.data.settings.LayoutPreferences
 import nu.bacher.memos.ui.edit.MemoEditViewModel
 import nu.bacher.memos.ui.list.MemoListViewModel
 import nu.bacher.memos.ui.login.LoginViewModel
@@ -23,8 +24,10 @@ import org.koin.dsl.module
  */
 fun commonModule() = module {
     single { get<MemosDatabase>().reminderDao() }
+    single { get<MemosDatabase>().memoDao() }
 
     singleOf(::AuthStore)
+    singleOf(::LayoutPreferences)
 
     single {
         buildMemosHttpClient(
@@ -39,6 +42,7 @@ fun commonModule() = module {
         val engine = get<HttpClientEngineFactory<*>>()
         MemoRepository(
             api = get(),
+            dao = get(),
             verifyClientFactory = { url, token -> buildVerificationClient(engine, url, token) },
         )
     }

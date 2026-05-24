@@ -45,4 +45,10 @@ class MemosApi(private val client: HttpClient) {
     suspend fun deleteMemo(uid: String) {
         client.delete("api/v1/memos/$uid")
     }
+
+    suspend fun createAttachment(request: CreateAttachmentRequest): AttachmentDto =
+        client.post("api/v1/attachments") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
 }
