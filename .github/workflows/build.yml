@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build:
-    name: assembleDebug
+    name: build & test
     runs-on: ubuntu-latest
 
     steps:
@@ -42,8 +42,19 @@ jobs:
           # consume but don't pollute it.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      - name: Run unit tests
+        run: ./gradlew :shared:testAndroidHostTest
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: shared/build/reports/tests/testAndroidHostTest
+          if-no-files-found: ignore
+
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
