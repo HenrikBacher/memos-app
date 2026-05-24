@@ -45,7 +45,11 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
 
+      # Skip on PRs from forks (where artifact storage write fails anyway)
+      # and on inner-PR pushes from contributors — saves the upload step
+      # (~2-5s) on the common case where nobody fetches the APK.
       - name: Upload debug APK
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: app-debug
