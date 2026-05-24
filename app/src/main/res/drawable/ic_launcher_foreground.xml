@@ -3,10 +3,20 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!--
+        Stylized lowercase "m" rendered as two stroked humps. Stroke-only (no
+        fill) so the same drawable doubles as the themed/monochrome icon —
+        Android tints alpha pixels and leaves transparent ones alone.
+
+        Bounds fit within the adaptive-icon safe zone (66dp circle centered on
+        108dp canvas): the glyph extends roughly x=33..75, y=33..77, well
+        within radius 33 from center (54, 54).
+    -->
     <path
-        android:fillColor="#FFC107"
-        android:pathData="M34,30 L74,30 A6,6 0 0 1 80,36 L80,78 A6,6 0 0 1 74,84 L34,84 A6,6 0 0 1 28,78 L28,36 A6,6 0 0 1 34,30 Z" />
-    <path
-        android:fillColor="#5D4037"
-        android:pathData="M40,46 L68,46 L68,50 L40,50 Z M40,56 L68,56 L68,60 L40,60 Z M40,66 L60,66 L60,70 L40,70 Z" />
+        android:strokeColor="#FFFFFFFF"
+        android:fillColor="#00000000"
+        android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M38,72 V50 Q38,38 46,38 Q54,38 54,50 V72 M54,72 V50 Q54,38 62,38 Q70,38 70,50 V72" />
 </vector>
