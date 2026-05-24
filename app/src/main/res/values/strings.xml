@@ -1,0 +1,46 @@
+<resources>
+    <string name="app_name">Memos</string>
+
+    <string name="login_title">Connect to memos</string>
+    <string name="login_server_url">Server URL</string>
+    <string name="login_server_hint">https://memos.example.com</string>
+    <string name="login_token">Access token</string>
+    <string name="login_token_hint">From Settings → My Account</string>
+    <string name="login_connect">Connect</string>
+    <string name="login_error_invalid_url">Invalid URL</string>
+    <string name="login_error_failed">Could not reach server: %1$s</string>
+
+    <string name="list_title">Memos</string>
+    <string name="list_empty">No memos yet. Tap + to create one.</string>
+    <string name="list_fab_new">New memo</string>
+    <string name="list_logout">Log out</string>
+    <string name="list_refresh">Refresh</string>
+
+    <string name="edit_title_new">New memo</string>
+    <string name="edit_title_edit">Edit memo</string>
+    <string name="edit_content_hint">Write a memo…</string>
+    <string name="edit_save">Save</string>
+    <string name="edit_delete">Delete</string>
+    <string name="edit_add_reminder">Add reminder</string>
+    <string name="edit_reminder_at">Reminder: %1$s</string>
+    <string name="edit_clear_reminder">Clear reminder</string>
+
+    <string name="reminder_sheet_title">Remind me…</string>
+    <string name="reminder_pick_date">Pick date</string>
+    <string name="reminder_pick_time">Pick time</string>
+    <string name="reminder_set">Set reminder</string>
+    <string name="reminder_perm_notifications">Notifications permission is needed for reminders.</string>
+    <string name="reminder_perm_exact_alarm">Allow exact alarms so reminders fire at the time you set.</string>
+    <string name="reminder_perm_grant">Grant</string>
+
+    <string name="notification_channel_reminders">Memo reminders</string>
+    <string name="notification_channel_reminders_desc">Notifications for time- and location-based memo reminders.</string>
+    <string name="notification_action_open">Open memo</string>
+    <string name="notification_action_done">Done</string>
+
+    <string name="share_saving">Saving memo…</string>
+    <string name="share_saved">Memo saved</string>
+    <string name="share_failed">Could not save memo</string>
+
+    <string name="widget_new_memo">New memo</string>
+</resources>
