@@ -30,5 +30,10 @@ render.experimental.xml
 # Google Services (e.g. APIs or Firebase)
 google-services.json
 
+# Play Publisher service account JSON — keep outside the repo; the build
+# reads its path from $ANDROID_PUBLISHER_CREDENTIALS_PATH.
+play-publisher*.json
+play-service-account*.json
+
 # Android Profiling
 *.hprof

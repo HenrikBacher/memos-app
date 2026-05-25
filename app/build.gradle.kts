@@ -1,8 +1,17 @@
+import com.github.triplet.gradle.androidpublisher.ReleaseStatus
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.awt.BasicStroke
+import java.awt.Color
+import java.awt.RenderingHints
+import java.awt.geom.AffineTransform
+import java.awt.geom.Path2D
+import java.awt.image.BufferedImage
+import javax.imageio.ImageIO
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.play.publisher)
 }
 
 val releaseKeystorePath: String? = System.getenv("ANDROID_KEYSTORE_PATH")
@@ -12,6 +21,11 @@ val releaseKeyPassword: String? = System.getenv("ANDROID_KEYSTORE_PASSWORD")
 val releaseSigningReady = listOf(
     releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
+
+// Service-account JSON for the Google Play Publisher API. Same env-var pattern
+// as the keystore — keep the key file outside the repo. If unset, the plugin
+// falls back to ADC / its own ANDROID_PUBLISHER_CREDENTIALS env (JSON contents).
+val publisherCredentialsPath: String? = System.getenv("ANDROID_PUBLISHER_CREDENTIALS_PATH")
 
 android {
     namespace = "nu.bacher.memos"
@@ -104,4 +118,84 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.ktor3)
+}
+
+play {
+    // Internal testing track by default — promote to closed/open/production
+    // explicitly with `--track <name>` once you've confirmed the upload.
+    track.set("internal")
+    // Upload as Draft so a botched publish doesn't immediately go live; flip
+    // to COMPLETED (or use `--release-status completed`) when ready.
+    releaseStatus.set(ReleaseStatus.DRAFT)
+    // App bundles, not APKs — required for new submissions since 2021.
+    defaultToAppBundles.set(true)
+    publisherCredentialsPath?.let { serviceAccountCredentials.set(file(it)) }
+}
+
+/**
+ * Rasterizes the adaptive launcher icon (background color + foreground
+ * vector) to a 512x512 PNG for the Play Store listing. Re-run whenever
+ * `ic_launcher_foreground.xml` or `ic_launcher_background` change.
+ */
+tasks.register("generatePlayIcon") {
+    group = "play store"
+    description = "Rasterize the adaptive launcher icon to a 512x512 PNG for the Play Store listing."
+
+    val outFile = layout.projectDirectory
+        .file("src/main/play/listings/en-US/graphics/icon/icon.png").asFile
+    outputs.file(outFile)
+    // The source-of-truth files. If they change, Gradle re-runs this task.
+    inputs.files(
+        "src/main/res/drawable/ic_launcher_foreground.xml",
+        "src/main/res/values/colors.xml",
+    )
+
+    doLast {
+        val size = 512
+        val image = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+        val g = image.createGraphics()
+        try {
+            g.setRenderingHint(
+                RenderingHints.KEY_ANTIALIASING,
+                RenderingHints.VALUE_ANTIALIAS_ON,
+            )
+            g.setRenderingHint(
+                RenderingHints.KEY_STROKE_CONTROL,
+                RenderingHints.VALUE_STROKE_PURE,
+            )
+
+            // Background — matches @color/ic_launcher_background (#2D5876).
+            g.color = Color(0x2D, 0x58, 0x76)
+            g.fillRect(0, 0, size, size)
+
+            // Foreground — mirror of ic_launcher_foreground.xml's path,
+            // scaled from the 108-unit viewport to 512 px.
+            val scale = size.toDouble() / 108.0
+            g.transform = AffineTransform.getScaleInstance(scale, scale)
+            g.color = Color.WHITE
+            g.stroke = BasicStroke(
+                9f,
+                BasicStroke.CAP_ROUND,
+                BasicStroke.JOIN_ROUND,
+            )
+
+            val path = Path2D.Float().apply {
+                // Left hump
+                moveTo(38f, 72f); lineTo(38f, 50f)
+                quadTo(38f, 38f, 46f, 38f); quadTo(54f, 38f, 54f, 50f)
+                lineTo(54f, 72f)
+                // Right hump
+                moveTo(54f, 72f); lineTo(54f, 50f)
+                quadTo(54f, 38f, 62f, 38f); quadTo(70f, 38f, 70f, 50f)
+                lineTo(70f, 72f)
+            }
+            g.draw(path)
+        } finally {
+            g.dispose()
+        }
+
+        outFile.parentFile.mkdirs()
+        ImageIO.write(image, "PNG", outFile)
+        logger.lifecycle("Wrote ${outFile.absolutePath}")
+    }
 }

@@ -1,0 +1,11 @@
+An Android client for memos (https://usememos.com) — the self-hosted, lightweight note-taking server. Bring your own server URL and access token; your notes stay on infrastructure you control.
+
+Features:
+• Browse, search, and tag-filter your memos with an offline-first cache.
+• Markdown editing with live preview, attachments, and visibility controls (private / protected / public).
+• Time-based reminders that fire as system notifications, even when the app isn't running.
+• Share-target integration: send text from any app straight to a new memo.
+• Home-screen widget for one-tap quick-note creation.
+• Material 3 design, dynamic color, light and dark themes.
+
+Requires a running memos server (v0.22+) and an access token from Settings → My Account.
