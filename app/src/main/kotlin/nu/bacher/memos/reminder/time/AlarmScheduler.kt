@@ -16,37 +16,52 @@ import androidx.core.content.getSystemService
  * App Standby throttling for non-alarm-clock apps. Falls back to
  * setAndAllowWhileIdle without the grant. Alarms are LOST on reboot —
  * BootReceiver re-arms them from the Room reminders table.
+ *
+ * [requestCode] is the caller's stable identifier for the alarm (the Room
+ * row id of the reminder). Used as both the PendingIntent request code and
+ * an Intent extra so the receiver can look the reminder up.
  */
 class AlarmScheduler(private val context: Context) : ReminderScheduler {
     private val alarmManager = context.getSystemService<AlarmManager>()!!
 
-    override fun schedule(memoName: String, triggerAtEpochMs: Long) {
+    override fun schedule(memoName: String, triggerAtEpochMs: Long, requestCode: Int) {
         val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             alarmManager.canScheduleExactAlarms()
         } else true
 
-        val pi = buildPendingIntent(memoName)
+        val pi = buildPendingIntent(memoName, requestCode)
         if (canExact) {
             alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pi)
         } else {
             // Falls back to inexact — best we can do without the runtime grant.
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pi)
         }
-        Log.d(TAG, "scheduled $memoName at $triggerAtEpochMs (exact=$canExact)")
+        Log.d(TAG, "scheduled $memoName at $triggerAtEpochMs (exact=$canExact, code=$requestCode)")
     }
 
-    override fun cancel(memoName: String) {
-        alarmManager.cancel(buildPendingIntent(memoName))
+    override fun cancel(requestCode: Int) {
+        // PendingIntent.getBroadcast with FLAG_NO_CREATE returns null if no
+        // matching PendingIntent exists; cancel is a no-op in that case.
+        // The memoName/action in the Intent template just need to match the
+        // values used at schedule() — the request code is the lookup key.
+        val pi = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            Intent(context, AlarmReceiver::class.java).apply { action = ACTION_FIRE },
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        ) ?: return
+        alarmManager.cancel(pi)
+        pi.cancel()
     }
 
-    private fun buildPendingIntent(memoName: String): PendingIntent {
+    private fun buildPendingIntent(memoName: String, requestCode: Int): PendingIntent {
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             action = ACTION_FIRE
             putExtra(EXTRA_MEMO_NAME, memoName)
         }
         return PendingIntent.getBroadcast(
             context,
-            memoName.hashCode(),
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

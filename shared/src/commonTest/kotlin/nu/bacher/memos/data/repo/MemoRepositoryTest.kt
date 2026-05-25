@@ -9,6 +9,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.MemosJson
@@ -47,6 +49,34 @@ class MemoRepositoryTest {
         assertEquals("memos/old", rows[1].name)
         // No leftover temp row.
         assertTrue(rows.none { it.name.startsWith("memos/local-") })
+    }
+
+    @Test
+    fun create_cleans_up_temp_row_when_caller_is_cancelled_mid_call() = runTest {
+        val engineEntered = CompletableDeferred<Unit>()
+        val engineNeverResponds = CompletableDeferred<Unit>()
+        val engine = MockEngine { _ ->
+            engineEntered.complete(Unit)
+            // Suspend forever — the test will cancel the caller before this
+            // ever completes, exercising the NonCancellable cleanup path.
+            engineNeverResponds.await()
+            respond("unreachable", HttpStatusCode.OK, jsonHeaders())
+        }
+        val dao = FakeMemoDao()
+        val repo = repo(engine, dao)
+
+        val job = launch { runCatching { repo.create("hi") } }
+        engineEntered.await()
+        // Temp row is visible while the API call is in flight.
+        assertTrue(
+            dao.getAll().any { it.name.startsWith("memos/local-") },
+            "temp row should be inserted before API call returns",
+        )
+        job.cancel()
+        job.join()
+        // After cancellation, NonCancellable cleanup must have removed the
+        // temp row so the cache doesn't leak phantom memos.
+        assertEquals(emptyList(), dao.getAll())
     }
 
     @Test

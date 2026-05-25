@@ -14,6 +14,19 @@ import nu.bacher.memos.ui.list.MemoListScreen
 import nu.bacher.memos.ui.login.LoginScreen
 import org.koin.compose.viewmodel.koinViewModel
 
+/**
+ * Where the user should land when MainActivity is started or re-started by a
+ * deep-link Intent. [MainActivity] re-derives this from each Intent and
+ * forwards the value to [MemosNavHost], which navigates whenever the value
+ * changes (so a foreground reminder tap actually opens the memo instead of
+ * being dropped).
+ */
+sealed interface NavLaunch {
+    data object None : NavLaunch
+    data class OpenMemo(val memoName: String) : NavLaunch
+    data class NewMemo(val initialContent: String?) : NavLaunch
+}
+
 object Routes {
     const val LOGIN = "login"
     const val LIST = "list"
@@ -27,23 +40,26 @@ object Routes {
 
 @Composable
 fun MemosNavHost(
-    initialMemoName: String? = null,
-    openNewMemoOnStart: Boolean = false,
-    initialContent: String? = null,
+    launch: NavLaunch = NavLaunch.None,
     rootViewModel: RootViewModel = koinViewModel(),
 ) {
     val navController = rememberNavController()
     val authState by rootViewModel.isAuthenticated.collectAsState()
 
-    LaunchedEffect(authState) {
+    // Re-navigate on (auth-resolution, launch) changes. Two triggers:
+    //   1. Initial auth resolution — pick the start destination.
+    //   2. A new Intent arriving via onNewIntent (e.g. notification while
+    //      foregrounded) bumps [launch] and we route to the right screen
+    //      without dropping the deep link.
+    LaunchedEffect(authState, launch) {
         val auth = authState ?: return@LaunchedEffect
-        val start = when {
+        val target = when {
             !auth -> Routes.LOGIN
-            openNewMemoOnStart -> Routes.edit(name = null, initial = initialContent)
-            initialMemoName != null -> Routes.edit(name = initialMemoName)
+            launch is NavLaunch.NewMemo -> Routes.edit(name = null, initial = launch.initialContent)
+            launch is NavLaunch.OpenMemo -> Routes.edit(name = launch.memoName)
             else -> Routes.LIST
         }
-        navController.navigate(start) {
+        navController.navigate(target) {
             popUpTo(0) { inclusive = true }
         }
     }

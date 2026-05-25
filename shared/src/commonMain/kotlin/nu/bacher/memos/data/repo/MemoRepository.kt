@@ -10,8 +10,10 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map as mapFlow
+import kotlinx.coroutines.withContext
 import nu.bacher.memos.data.api.AttachmentCreate
 import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.api.AttachmentRef
@@ -103,12 +105,18 @@ class MemoRepository(
                         ?.map { AttachmentRef(name = it.name) },
                 ),
             )
-            // Swap temp row for the server row, keeping order=0.
-            dao.delete(tempName)
-            dao.insertAtTop(saved.toEntity(0, currentTimeMillis()))
+            // Swap temp row for the server row, keeping order=0. Run under
+            // NonCancellable so a cancellation between API success and DAO
+            // write can't leave the cache with the temp row + no server row.
+            withContext(NonCancellable) {
+                dao.delete(tempName)
+                dao.insertAtTop(saved.toEntity(0, currentTimeMillis()))
+            }
             saved
         } catch (t: Throwable) {
-            dao.delete(tempName)
+            // NonCancellable so the rollback still runs if the API call was
+            // cancelled mid-flight — otherwise the temp row leaks.
+            withContext(NonCancellable) { dao.delete(tempName) }
             throw t
         }
     }
@@ -144,10 +152,12 @@ class MemoRepository(
                     attachments = attachments?.map { AttachmentRef(name = it.name) },
                 ),
             )
-            dao.upsert(saved.toEntity(prior.orderInList, currentTimeMillis()))
+            withContext(NonCancellable) {
+                dao.upsert(saved.toEntity(prior.orderInList, currentTimeMillis()))
+            }
             saved
         } catch (t: Throwable) {
-            dao.upsert(prior)
+            withContext(NonCancellable) { dao.upsert(prior) }
             throw t
         }
     }
@@ -188,7 +198,7 @@ class MemoRepository(
         try {
             api.deleteMemo(name.memoUid())
         } catch (t: Throwable) {
-            dao.upsert(prior)
+            withContext(NonCancellable) { dao.upsert(prior) }
             throw t
         }
     }

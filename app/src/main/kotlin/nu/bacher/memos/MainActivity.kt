@@ -1,33 +1,62 @@
 package nu.bacher.memos
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import nu.bacher.memos.ui.link.ProvideMemosUriHandler
 import nu.bacher.memos.ui.navigation.MemosNavHost
+import nu.bacher.memos.ui.navigation.NavLaunch
 import nu.bacher.memos.ui.theme.MemosTheme
 
 class MainActivity : ComponentActivity() {
 
+    /**
+     * Compose state for the current intent's deep-link payload. Lifted out of
+     * onCreate so [onNewIntent] can update it when a notification or share
+     * arrives while the activity is already in the foreground — without this
+     * the new extras would be silently dropped (the existing Activity instance
+     * is reused under launchMode=singleTask, and onCreate doesn't run again).
+     */
+    private var navLaunch by mutableStateOf<NavLaunch>(NavLaunch.None)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        val initialMemoName = intent?.getStringExtra(EXTRA_OPEN_MEMO_NAME)
-        val openNewMemo = intent?.getBooleanExtra(EXTRA_OPEN_NEW_MEMO, false) == true
-        val initialContent = intent?.getStringExtra(android.content.Intent.EXTRA_TEXT)
+        navLaunch = readLaunch(intent)
 
         setContent {
             MemosTheme {
                 ProvideMemosUriHandler {
-                    MemosNavHost(
-                        initialMemoName = initialMemoName,
-                        openNewMemoOnStart = openNewMemo,
-                        initialContent = initialContent,
-                    )
+                    MemosNavHost(launch = navLaunch)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Required so subsequent getIntent() reads see the new payload; not
+        // strictly load-bearing here since we read from [intent] directly,
+        // but it keeps the Activity contract honest.
+        setIntent(intent)
+        val next = readLaunch(intent)
+        if (next != NavLaunch.None) navLaunch = next
+    }
+
+    private fun readLaunch(intent: Intent?): NavLaunch {
+        intent ?: return NavLaunch.None
+        val openMemoName = intent.getStringExtra(EXTRA_OPEN_MEMO_NAME)
+        val openNew = intent.getBooleanExtra(EXTRA_OPEN_NEW_MEMO, false)
+        val initialContent = intent.getStringExtra(Intent.EXTRA_TEXT)
+        return when {
+            openMemoName != null -> NavLaunch.OpenMemo(openMemoName)
+            openNew -> NavLaunch.NewMemo(initialContent)
+            else -> NavLaunch.None
         }
     }
 
