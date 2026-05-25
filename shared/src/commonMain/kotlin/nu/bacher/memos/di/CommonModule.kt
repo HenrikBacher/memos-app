@@ -22,7 +22,7 @@ import org.koin.dsl.module
  * [MemosDatabase], an [HttpClientEngineFactory], and a platform
  * [nu.bacher.memos.reminder.time.ReminderScheduler].
  */
-fun commonModule() = module {
+fun commonModule(enableHttpLogging: Boolean = false) = module {
     single { get<MemosDatabase>().reminderDao() }
     single { get<MemosDatabase>().memoDao() }
 
@@ -33,7 +33,7 @@ fun commonModule() = module {
         buildMemosHttpClient(
             engine = get<HttpClientEngineFactory<*>>(),
             authStore = get(),
-            enableLogging = true,
+            enableLogging = enableHttpLogging,
         )
     }
     singleOf(::MemosApi)

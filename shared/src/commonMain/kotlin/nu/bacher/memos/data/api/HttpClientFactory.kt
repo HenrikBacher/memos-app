@@ -38,11 +38,19 @@ fun buildMemosHttpClient(
     enableLogging: Boolean = false,
 ): HttpClient = HttpClient(engine) {
     expectSuccess = true
+    // Don't follow redirects: a 30x to a host other than the user's Memos
+    // server would otherwise re-issue the request with the bearer token
+    // attached. Memos doesn't redirect in normal operation; fail loudly if
+    // the server starts doing so.
+    followRedirects = false
 
     install(ContentNegotiation) { json(MemosJson) }
 
     if (enableLogging) {
-        install(Logging) { level = LogLevel.INFO }
+        install(Logging) {
+            level = LogLevel.INFO
+            sanitizeHeader { header -> header == HttpHeaders.Authorization }
+        }
     }
 
     install(DefaultRequest) {
@@ -73,6 +81,7 @@ fun buildVerificationClient(
     token: String,
 ): HttpClient = HttpClient(engine) {
     expectSuccess = true
+    followRedirects = false
     install(ContentNegotiation) { json(MemosJson) }
     install(DefaultRequest) {
         val parsed = URLBuilder().takeFrom(serverUrl.trimEnd('/'))

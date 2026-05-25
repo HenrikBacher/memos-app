@@ -24,7 +24,11 @@ class MemosApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         startKoin {
             androidContext(this@MemosApp)
-            modules(commonModule(), androidPlatformModule(), appModule())
+            modules(
+                commonModule(enableHttpLogging = BuildConfig.DEBUG),
+                androidPlatformModule(),
+                appModule(),
+            )
         }
         NotificationHelper.createChannels(this)
     }

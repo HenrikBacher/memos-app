@@ -32,8 +32,8 @@ class LoginViewModel(
         val url = current.serverUrl.trim().trimEnd('/')
         val token = current.token.trim()
 
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            _state.update { it.copy(error = "URL must start with http:// or https://") }
+        if (!url.startsWith("https://")) {
+            _state.update { it.copy(error = "URL must start with https:// — plain http is not supported") }
             return
         }
         if (token.isBlank()) {
