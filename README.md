@@ -43,12 +43,25 @@ The Gradle wrapper at `./gradlew` pins everything else.
 
 ```sh
 ./gradlew :app:assembleDebug     # debug APK at app/build/outputs/apk/debug/
-./gradlew :app:assembleRelease   # release APK — no signing config yet, will be unsigned
+./gradlew :app:assembleRelease   # release APK — signed if release env vars set (see below), unsigned otherwise
 ./gradlew :app:installDebug      # build + install on the attached device/emulator
+./gradlew :shared:test           # run :shared unit tests (DTO, AttachmentUrl, repo, settings)
 ./gradlew clean                  # if Gradle gets confused
 ```
 
 On Windows use `gradlew.bat`. CI uses the Linux wrapper.
+
+### Release signing
+
+Release builds pick up a signing config when these env vars are set (otherwise the APK is unsigned):
+
+| Variable | Meaning |
+|---|---|
+| `ANDROID_KEYSTORE_PATH` | Path to the `.jks` keystore file (kept outside the repo) |
+| `ANDROID_KEYSTORE_PASSWORD` | Store + key password (currently shared) |
+| `ANDROID_KEY_ALIAS` | Key alias inside the keystore |
+
+For Play Publisher uploads, set `ANDROID_PUBLISHER_CREDENTIALS_PATH` to the service-account JSON, or fall back to the plugin's own `ANDROID_PUBLISHER_CREDENTIALS` env (JSON contents).
 
 ### Running on a device
 
@@ -58,13 +71,22 @@ The app installs as `nu.bacher.memos.debug` (debug builds get a `.debug` suffix)
 
 ## Tests
 
-There are none yet. The `commonTest` source set is wired (via `withHostTestBuilder { }` in `:shared`) so adding tests is just a matter of dropping files into `shared/src/commonTest/kotlin/`. No test dependencies are pre-declared — add them inside `commonTest.dependencies { }` when you write the first test.
+`:shared` has a `commonTest` source set (wired via `withHostTestBuilder { }`) with the kotlin-test / coroutines-test / ktor mock / multiplatform-settings test deps already declared. Current coverage:
+
+- `data/api/DtosTest.kt`, `data/api/AttachmentUrlTest.kt` — DTO parsing + URL helpers
+- `data/repo/MemoRepositoryTest.kt` (with `FakeMemoDao`) — streaming upload + repo behavior against a Ktor `MockEngine`
+- `data/settings/LayoutPreferencesTest.kt` — settings round-trip
+
+Run with `./gradlew :shared:test`. New tests go under `shared/src/commonTest/kotlin/` — don't add empty assertion-free scaffolding.
 
 For Android-side instrumented tests in `:app`, the standard `src/androidTest/` path works (the module uses plain `com.android.application`).
 
 ## CI
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) runs `:app:assembleDebug` on every push to `main` and every PR targeting `main`. The debug APK is uploaded as an artifact on `main` builds.
+[`.github/workflows/build.yml`](.github/workflows/build.yml) defines two jobs:
+
+- **build & test** — runs `:shared:testAndroidHostTest` then `:app:assembleDebug` on every push to `main` and every PR. Uploads the debug APK as an artifact; on test failure, uploads the HTML report too.
+- **release & publish** — runs on `workflow_dispatch` or `v*` tag pushes. Decodes the upload keystore + Play service-account JSON from secrets, builds a signed AAB with a `git rev-list --count`-derived `versionCode`, uploads the AAB and R8 mapping as artifacts, then publishes to the Play internal track as a draft.
 
 Caching is handled by `gradle/actions/setup-gradle@v4` (Gradle home + build cache + configuration cache). PR jobs use the cache read-only so they don't pollute it.
 

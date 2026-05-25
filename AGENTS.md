@@ -7,12 +7,15 @@ Short reference for coding agents (Claude Code, Cursor, etc.) working on this re
 ```sh
 ./gradlew :app:assembleDebug          # primary build target
 ./gradlew :app:installDebug           # build + install on device
+./gradlew :shared:testAndroidHostTest # unit tests (matches CI); :shared:test also works
 ./gradlew clean                       # rare; only if state is wrong
 ```
 
 Java **21** required (Temurin or Android Studio JBR). The Gradle wrapper handles everything else.
 
-There are no tests yet. The `commonTest` source set is wired but empty. Don't add a test without a real assertion — empty scaffolding tests get committed and never get filled in.
+`commonTest` has real coverage now: DTO parsing, `AttachmentUrl`, `LayoutPreferences`, and `MemoRepository` (streaming upload against a Ktor `MockEngine` via `FakeMemoDao`). Add new tests next to these. **Don't add a test without a real assertion** — empty scaffolding tests get committed and never get filled in.
+
+Release signing reads `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` from the env. Play Publisher reads `ANDROID_PUBLISHER_CREDENTIALS_PATH` (service-account JSON). If any keystore var is missing, the release build silently falls back to unsigned — check the env, don't add a default keystore.
 
 ## Module split (don't break it)
 
