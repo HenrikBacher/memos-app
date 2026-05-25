@@ -65,8 +65,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.m3.Markdown
-import java.text.DateFormat
-import java.util.Date
 import kotlinx.coroutines.launch
 import nu.bacher.memos.R
 import nu.bacher.memos.ui.attachments.AttachmentList
@@ -390,8 +388,14 @@ private fun EditActionsRow(
         } else {
             val label = stringResource(
                 R.string.edit_reminder_at,
-                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                    .format(Date(r.triggerAtEpochMs)),
+                android.text.format.DateUtils.formatDateTime(
+                    context,
+                    r.triggerAtEpochMs,
+                    android.text.format.DateUtils.FORMAT_SHOW_DATE or
+                        android.text.format.DateUtils.FORMAT_SHOW_TIME or
+                        android.text.format.DateUtils.FORMAT_SHOW_YEAR or
+                        android.text.format.DateUtils.FORMAT_ABBREV_ALL,
+                ),
             )
             AssistChip(
                 onClick = onOpenReminderSheet,

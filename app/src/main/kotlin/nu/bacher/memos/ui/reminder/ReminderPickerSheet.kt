@@ -44,8 +44,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
-import java.util.Calendar
-import java.util.Date
 import nu.bacher.memos.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,16 +75,14 @@ fun ReminderPickerSheet(
 private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
     val context = LocalContext.current
 
-    val initialCal = remember(initialEpochMs) {
-        Calendar.getInstance().apply { timeInMillis = initialEpochMs ?: System.currentTimeMillis() }
+    val initialDateTime = remember(initialEpochMs) {
+        initialEpochMs?.let {
+            java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault())
+        }
     }
     var date by remember(initialEpochMs) { mutableStateOf<Long?>(initialEpochMs) }
-    var hour by remember(initialEpochMs) {
-        mutableIntStateOf(if (initialEpochMs != null) initialCal.get(Calendar.HOUR_OF_DAY) else 9)
-    }
-    var minute by remember(initialEpochMs) {
-        mutableIntStateOf(if (initialEpochMs != null) initialCal.get(Calendar.MINUTE) else 0)
-    }
+    var hour by remember(initialEpochMs) { mutableIntStateOf(initialDateTime?.hour ?: 9) }
+    var minute by remember(initialEpochMs) { mutableIntStateOf(initialDateTime?.minute ?: 0) }
     var showDate by remember { mutableStateOf(false) }
     var showTime by remember { mutableStateOf(false) }
 
@@ -116,11 +112,14 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
             }
             OutlinedButton(onClick = { showTime = true }, modifier = Modifier.weight(1f)) {
                 val timeLabel = remember(hour, minute) {
-                    val cal = Calendar.getInstance().apply {
-                        set(Calendar.HOUR_OF_DAY, hour)
-                        set(Calendar.MINUTE, minute)
-                    }
-                    android.text.format.DateFormat.getTimeFormat(context).format(cal.time)
+                    val millis = java.time.LocalTime.of(hour, minute)
+                        .atDate(java.time.LocalDate.now())
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toInstant()
+                        .toEpochMilli()
+                    android.text.format.DateUtils.formatDateTime(
+                        context, millis, android.text.format.DateUtils.FORMAT_SHOW_TIME,
+                    )
                 }
                 Text(timeLabel)
             }
@@ -210,13 +209,13 @@ private fun PermissionRow(message: String, action: () -> Unit) {
 
 private fun currentlySelectedInstant(date: Long?, hour: Int, minute: Int): Long? =
     date?.let {
-        Calendar.getInstance().apply {
-            timeInMillis = it
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+        java.time.Instant.ofEpochMilli(it)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toLocalDate()
+            .atTime(hour, minute)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
     }
 
 private fun hasNotificationPermission(context: Context): Boolean {
@@ -250,4 +249,10 @@ private fun openExactAlarmSettings(context: Context) {
 }
 
 private fun dateLabel(context: Context, millis: Long): String =
-    android.text.format.DateFormat.getMediumDateFormat(context).format(Date(millis))
+    android.text.format.DateUtils.formatDateTime(
+        context,
+        millis,
+        android.text.format.DateUtils.FORMAT_SHOW_DATE or
+            android.text.format.DateUtils.FORMAT_SHOW_YEAR or
+            android.text.format.DateUtils.FORMAT_ABBREV_MONTH,
+    )
