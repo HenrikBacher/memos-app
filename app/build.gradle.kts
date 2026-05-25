@@ -92,6 +92,8 @@ kotlin {
 dependencies {
     implementation(project(":shared"))
 
+    implementation(libs.kotlinx.datetime)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

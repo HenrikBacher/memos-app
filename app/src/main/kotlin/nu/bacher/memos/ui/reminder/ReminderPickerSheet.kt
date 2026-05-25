@@ -44,6 +44,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import kotlin.time.Clock
+import kotlin.time.Instant
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
+import kotlinx.datetime.toLocalDateTime
 import nu.bacher.memos.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,7 +84,7 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
 
     val initialDateTime = remember(initialEpochMs) {
         initialEpochMs?.let {
-            java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault())
+            Instant.fromEpochMilliseconds(it).toLocalDateTime(TimeZone.currentSystemDefault())
         }
     }
     var date by remember(initialEpochMs) { mutableStateOf<Long?>(initialEpochMs) }
@@ -112,11 +119,11 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
             }
             OutlinedButton(onClick = { showTime = true }, modifier = Modifier.weight(1f)) {
                 val timeLabel = remember(hour, minute) {
-                    val millis = java.time.LocalTime.of(hour, minute)
-                        .atDate(java.time.LocalDate.now())
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toInstant()
-                        .toEpochMilli()
+                    val tz = TimeZone.currentSystemDefault()
+                    val today = Clock.System.now().toLocalDateTime(tz).date
+                    val millis = LocalDateTime(today, LocalTime(hour, minute))
+                        .toInstant(tz)
+                        .toEpochMilliseconds()
                     android.text.format.DateUtils.formatDateTime(
                         context, millis, android.text.format.DateUtils.FORMAT_SHOW_TIME,
                     )
@@ -209,13 +216,9 @@ private fun PermissionRow(message: String, action: () -> Unit) {
 
 private fun currentlySelectedInstant(date: Long?, hour: Int, minute: Int): Long? =
     date?.let {
-        java.time.Instant.ofEpochMilli(it)
-            .atZone(java.time.ZoneId.systemDefault())
-            .toLocalDate()
-            .atTime(hour, minute)
-            .atZone(java.time.ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
+        val tz = TimeZone.currentSystemDefault()
+        val localDate = Instant.fromEpochMilliseconds(it).toLocalDateTime(tz).date
+        LocalDateTime(localDate, LocalTime(hour, minute)).toInstant(tz).toEpochMilliseconds()
     }
 
 private fun hasNotificationPermission(context: Context): Boolean {
