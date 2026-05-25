@@ -15,6 +15,7 @@ import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.db.MemoEntity
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -22,82 +23,109 @@ import kotlin.test.fail
 class MemoRepositoryTest {
 
     @Test
-    fun refresh_paginates_until_nextPageToken_is_blank() = runTest {
-        val pageTokensSeen = mutableListOf<String?>()
-        val engine = MockEngine { request ->
-            val token = request.url.parameters["pageToken"]
-            pageTokensSeen += token
-            val body = when (token) {
-                null -> """{"memos":[{"name":"memos/a"},{"name":"memos/b"}],"nextPageToken":"t1"}"""
-                "t1" -> """{"memos":[{"name":"memos/c"}],"nextPageToken":"t2"}"""
-                "t2" -> """{"memos":[{"name":"memos/d"}],"nextPageToken":""}"""
-                else -> fail("unexpected pageToken=$token")
-            }
-            respond(body, HttpStatusCode.OK, jsonHeaders())
-        }
-        val repo = repo(engine, FakeMemoDao())
-
-        val result = repo.refresh()
-        assertTrue(result.isSuccess)
-
-        // Three sequential calls: first with no token, then t1, then t2.
-        assertEquals(listOf(null, "t1", "t2"), pageTokensSeen)
-        assertEquals(
-            listOf("memos/a", "memos/b", "memos/c", "memos/d"),
-            repo.daoOrNull()?.getAll()?.map { it.name },
-        )
-    }
-
-    @Test
-    fun refresh_replaces_cache_rather_than_appending() = runTest {
-        val responses = mutableListOf(
-            """{"memos":[{"name":"memos/a"},{"name":"memos/b"}]}""",
-            """{"memos":[{"name":"memos/a"}]}""",
-        )
-        val engine = MockEngine { _ ->
-            respond(responses.removeAt(0), HttpStatusCode.OK, jsonHeaders())
-        }
-        val dao = FakeMemoDao()
-        val repo = repo(engine, dao)
-
-        repo.refresh()
-        assertEquals(2, dao.getAll().size)
-        repo.refresh()
-        // Second response omitted "memos/b" — the local cache must drop it,
-        // not accumulate stale rows.
-        assertEquals(listOf("memos/a"), dao.getAll().map { it.name })
-    }
-
-    @Test
-    fun create_prepends_new_memo_and_shifts_existing_orders() = runTest {
+    fun create_optimistically_inserts_temp_row_then_replaces_with_server_row() = runTest {
         val engine = MockEngine { _ ->
             respond(
-                """{"name":"memos/new","content":"hello"}""",
+                """{"name":"memos/server","content":"hello"}""",
                 HttpStatusCode.OK,
                 jsonHeaders(),
             )
         }
         val dao = FakeMemoDao().also {
-            it.replaceAll(
-                listOf(
-                    entity("memos/old1", order = 0),
-                    entity("memos/old2", order = 1),
-                ),
-            )
+            it.replaceAll(listOf(entity("memos/old", order = 0)))
         }
         val repo = repo(engine, dao)
 
-        repo.create("hello")
+        val saved = repo.create("hello")
 
+        assertEquals("memos/server", saved.name)
         val rows = dao.getAll()
-        assertEquals(3, rows.size)
-        // New memo lands at order 0; existing rows shift down by one.
-        assertEquals("memos/new", rows[0].name)
+        assertEquals(2, rows.size)
+        // Server row sits at the top, old row shifted down.
+        assertEquals("memos/server", rows[0].name)
         assertEquals(0, rows[0].orderInList)
-        assertEquals("memos/old1", rows[1].name)
-        assertEquals(1, rows[1].orderInList)
-        assertEquals("memos/old2", rows[2].name)
-        assertEquals(2, rows[2].orderInList)
+        assertEquals("memos/old", rows[1].name)
+        // No leftover temp row.
+        assertTrue(rows.none { it.name.startsWith("memos/local-") })
+    }
+
+    @Test
+    fun create_rolls_back_temp_row_when_api_fails() = runTest {
+        val engine = MockEngine { _ ->
+            respond("nope", HttpStatusCode.InternalServerError, jsonHeaders())
+        }
+        val dao = FakeMemoDao().also {
+            it.replaceAll(listOf(entity("memos/old", order = 0)))
+        }
+        val repo = repo(engine, dao)
+
+        assertFailsWith<Throwable> { repo.create("boom") }
+
+        // Cache is back to its pre-call state.
+        val rows = dao.getAll()
+        assertEquals(listOf("memos/old"), rows.map { it.name })
+        assertTrue(rows.none { it.name.startsWith("memos/local-") })
+    }
+
+    @Test
+    fun update_writes_to_cache_first_and_rolls_back_on_failure() = runTest {
+        val prior = entity("memos/x", order = 5).copy(content = "old", visibility = "PRIVATE")
+        val dao = FakeMemoDao().also { it.replaceAll(listOf(prior)) }
+
+        var capturedDuringCall: MemoEntity? = null
+        val engine = MockEngine { _ ->
+            // Confirms the DAO already reflects the optimistic write while the
+            // API request is in flight.
+            capturedDuringCall = dao.getAll().first { it.name == "memos/x" }
+            respond("nope", HttpStatusCode.InternalServerError, jsonHeaders())
+        }
+        val repo = repo(engine, dao)
+
+        assertFailsWith<Throwable> {
+            repo.update("memos/x", content = "new", visibility = "PUBLIC")
+        }
+
+        // Optimistic write was observable mid-flight.
+        val midFlight = capturedDuringCall
+        assertNotNull(midFlight)
+        assertEquals("new", midFlight.content)
+        assertEquals("PUBLIC", midFlight.visibility)
+
+        // After failure, cache restored.
+        val after = dao.get("memos/x")!!
+        assertEquals("old", after.content)
+        assertEquals("PRIVATE", after.visibility)
+        assertEquals(5, after.orderInList)
+    }
+
+    @Test
+    fun delete_removes_from_cache_first_and_restores_on_failure() = runTest {
+        val prior = entity("memos/x", order = 3)
+        val dao = FakeMemoDao().also { it.replaceAll(listOf(prior)) }
+
+        var observedDuringCall: List<String> = emptyList()
+        val engine = MockEngine { _ ->
+            observedDuringCall = dao.getAll().map { it.name }
+            respond("nope", HttpStatusCode.InternalServerError, jsonHeaders())
+        }
+        val repo = repo(engine, dao)
+
+        assertFailsWith<Throwable> { repo.delete("memos/x") }
+
+        // Cache was empty while the API call was in flight.
+        assertEquals(emptyList(), observedDuringCall)
+        // After failure, the row is back.
+        assertEquals(listOf("memos/x"), dao.getAll().map { it.name })
+    }
+
+    @Test
+    fun delete_succeeds_and_leaves_cache_empty_on_2xx() = runTest {
+        val dao = FakeMemoDao().also { it.replaceAll(listOf(entity("memos/x"))) }
+        val engine = MockEngine { _ -> respond("", HttpStatusCode.OK, jsonHeaders()) }
+        val repo = repo(engine, dao)
+
+        repo.delete("memos/x")
+        assertEquals(emptyList(), dao.getAll())
     }
 
     @Test
@@ -148,16 +176,8 @@ class MemoRepositoryTest {
             api = MemosApi(client),
             dao = dao,
             verifyClientFactory = { _, _ -> fail("verifyCreds is not exercised here") },
-        ).also { _daoRefs[it] = dao }
+        )
     }
-
-    /**
-     * Test-only handle to read back the DAO a repo was constructed with — the
-     * repo doesn't expose it. We thread it through a weak-ish side table keyed
-     * by the repo instance.
-     */
-    private val _daoRefs = mutableMapOf<MemoRepository, FakeMemoDao>()
-    private fun MemoRepository.daoOrNull(): FakeMemoDao? = _daoRefs[this]
 
     private fun jsonHeaders() = headersOf(HttpHeaders.ContentType, "application/json")
 

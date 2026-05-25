@@ -1,5 +1,6 @@
 package nu.bacher.memos.data.db
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -15,8 +16,19 @@ interface MemoDao {
     @Query("SELECT * FROM memos ORDER BY orderInList ASC")
     suspend fun getAll(): List<MemoEntity>
 
+    /**
+     * Paging source backing the list screen. Same ORDER BY as [observeAll] so
+     * the local cache renders in the server's chosen order (pinned/displayTime
+     * etc. are baked into [MemoEntity.orderInList] at insert time).
+     */
+    @Query("SELECT * FROM memos ORDER BY orderInList ASC")
+    fun pagingSource(): PagingSource<Int, MemoEntity>
+
     @Query("SELECT * FROM memos WHERE name = :name LIMIT 1")
     suspend fun get(name: String): MemoEntity?
+
+    @Query("SELECT COALESCE(MAX(orderInList) + 1, 0) FROM memos")
+    suspend fun nextOrderIndex(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(memo: MemoEntity)
@@ -42,6 +54,18 @@ interface MemoDao {
     suspend fun replaceAll(memos: List<MemoEntity>) {
         clear()
         upsertAll(memos)
+    }
+
+    /**
+     * Appends [memos] after the existing rows, continuing the [orderInList]
+     * sequence so the paging cursor stays monotonic. Called by the
+     * RemoteMediator on APPEND loads.
+     */
+    @Transaction
+    suspend fun appendAll(memos: List<MemoEntity>) {
+        if (memos.isEmpty()) return
+        val base = nextOrderIndex()
+        upsertAll(memos.mapIndexed { i, m -> m.copy(orderInList = base + i) })
     }
 
     /**

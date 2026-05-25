@@ -49,6 +49,8 @@ kotlin {
             api(libs.androidx.room.runtime)
             implementation(libs.androidx.sqlite.bundled)
 
+            api(libs.androidx.paging.common)
+
             api(libs.koin.core)
 
             implementation(libs.multiplatform.settings)
@@ -62,6 +64,9 @@ kotlin {
             implementation(libs.koin.android)
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.tink.android)
+            // Room's @Query fun foo(): PagingSource<...> generates an impl that
+            // depends on this artifact. Common gets paging-common only.
+            implementation(libs.androidx.room.paging)
         }
 
         commonTest.dependencies {

@@ -34,6 +34,24 @@ class MemoEditViewModel(
         val finished: Boolean = false,
         /** False renders content as markdown (links clickable); true opens the editor. */
         val isEditing: Boolean = false,
+        /**
+         * Snapshot of the memo at load time. Compared against the current
+         * state to compute [isDirty]; new memos start with an empty baseline
+         * so the "is anything entered yet" question has the same answer.
+         */
+        val original: Snapshot = Snapshot(),
+    )
+
+    /**
+     * Subset of [State] used for dirty-checking — only the user-editable
+     * fields. Excludes loading/saving/error/finished, which would otherwise
+     * make every transient state count as a change.
+     */
+    data class Snapshot(
+        val content: String = "",
+        val visibility: String = VISIBILITY_PRIVATE,
+        val attachments: List<AttachmentDto> = emptyList(),
+        val reminderTriggerAtEpochMs: Long? = null,
     )
 
     private val _state = MutableStateFlow(State())
@@ -42,10 +60,16 @@ class MemoEditViewModel(
     fun load(memoName: String?, initialContent: String? = null) {
         viewModelScope.launch {
             if (memoName == null) {
+                val content = initialContent.orEmpty()
                 _state.value = State(
                     loading = false,
-                    content = initialContent.orEmpty(),
+                    content = content,
                     isEditing = true,
+                    // New-memo baseline matches what the user starts with —
+                    // pre-populated shared text is "already entered" so a
+                    // straight back press isn't treated as discarding work
+                    // the user didn't author.
+                    original = Snapshot(content = content),
                 )
                 return@launch
             }
@@ -53,19 +77,39 @@ class MemoEditViewModel(
             runCatching {
                 val memo = memoRepo.get(memoName)
                 val rem = reminderRepo.get(memoName)
+                val visibility = memo.visibility.ifBlank { VISIBILITY_PRIVATE }
                 _state.value = State(
                     memoName = memo.name,
                     content = memo.content,
-                    visibility = memo.visibility.ifBlank { VISIBILITY_PRIVATE },
+                    visibility = visibility,
                     attachments = memo.attachments,
                     reminder = rem,
                     loading = false,
                     isEditing = false,
+                    original = Snapshot(
+                        content = memo.content,
+                        visibility = visibility,
+                        attachments = memo.attachments,
+                        reminderTriggerAtEpochMs = rem?.triggerAtEpochMs,
+                    ),
                 )
             }.onFailure { t ->
                 _state.update { it.copy(loading = false, error = t.message) }
             }
         }
+    }
+
+    /**
+     * Whether the current state differs from the snapshot captured at load.
+     * Used by the screen to decide whether back should warn-then-discard.
+     */
+    fun isDirty(): Boolean {
+        val s = _state.value
+        val o = s.original
+        return s.content != o.content ||
+            s.visibility != o.visibility ||
+            s.attachments != o.attachments ||
+            s.reminder?.triggerAtEpochMs != o.reminderTriggerAtEpochMs
     }
 
     fun setContent(text: String) = _state.update { it.copy(content = text) }

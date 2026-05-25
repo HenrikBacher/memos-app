@@ -1,5 +1,6 @@
 package nu.bacher.memos.data.repo
 
+import androidx.paging.PagingSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -24,8 +25,17 @@ class FakeMemoDao : MemoDao {
     override suspend fun getAll(): List<MemoEntity> =
         state.value.sortedBy { it.orderInList }
 
+    override fun pagingSource(): PagingSource<Int, MemoEntity> =
+        // Repository tests don't exercise paging; a fake PagingSource here
+        // would just be dead code. Tests that need this can override per
+        // case.
+        throw NotImplementedError("pagingSource() not used by these tests")
+
     override suspend fun get(name: String): MemoEntity? =
         state.value.firstOrNull { it.name == name }
+
+    override suspend fun nextOrderIndex(): Int =
+        state.value.maxOfOrNull { it.orderInList }?.let { it + 1 } ?: 0
 
     override suspend fun upsert(memo: MemoEntity) {
         state.update { current -> current.filterNot { it.name == memo.name } + memo }

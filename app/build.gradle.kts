@@ -118,6 +118,8 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.ktor3)
+
+    implementation(libs.androidx.paging.compose)
 }
 
 play {

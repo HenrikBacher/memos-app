@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -63,6 +62,11 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemContentType
+import androidx.paging.compose.itemKey
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
 import java.text.DateFormat
@@ -83,6 +87,7 @@ fun MemoListScreen(
     vm: MemoListViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val pagingItems = vm.memos.collectAsLazyPagingItems()
     var menuOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -111,7 +116,7 @@ fun MemoListScreen(
                             )
                         }
                         LayoutToggleButton(state.layout, vm::setLayout)
-                        IconButton(onClick = { vm.refresh() }) {
+                        IconButton(onClick = { pagingItems.refresh() }) {
                             Icon(
                                 Icons.Filled.Refresh,
                                 contentDescription = stringResource(R.string.list_refresh),
@@ -159,12 +164,19 @@ fun MemoListScreen(
                     onSelect = vm::setSelectedTag,
                 )
             }
+            val refreshing = pagingItems.loadState.refresh is LoadState.Loading
             PullToRefreshBox(
-                isRefreshing = state.loading,
-                onRefresh = { vm.refresh() },
+                isRefreshing = refreshing,
+                onRefresh = { pagingItems.refresh() },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                MemoResultsBody(state = state, onOpenMemo = onOpenMemo)
+                MemoResultsBody(
+                    pagingItems = pagingItems,
+                    layout = state.layout,
+                    query = state.query,
+                    selectedTag = state.selectedTag,
+                    onOpenMemo = onOpenMemo,
+                )
             }
         }
     }
@@ -245,23 +257,31 @@ private fun LayoutToggleButton(layout: MemoLayout, onToggle: (MemoLayout) -> Uni
 
 @Composable
 private fun MemoResultsBody(
-    state: MemoListViewModel.State,
+    pagingItems: LazyPagingItems<MemoListViewModel.Row>,
+    layout: MemoLayout,
+    query: String,
+    selectedTag: String?,
     onOpenMemo: (String) -> Unit,
 ) {
-    if (state.rows.isEmpty() && !state.loading) {
-        val filtering = state.query.isNotBlank() || state.selectedTag != null
+    val refresh = pagingItems.loadState.refresh
+    val isInitialLoading = refresh is LoadState.Loading && pagingItems.itemCount == 0
+    val errorState = refresh as? LoadState.Error
+
+    if (pagingItems.itemCount == 0 && !isInitialLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                state.error
-                    ?: stringResource(
-                        if (filtering) R.string.list_empty_filtered else R.string.list_empty,
-                    ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            val msg = when {
+                errorState != null -> errorState.error.message
+                    ?: stringResource(R.string.list_empty)
+                query.isNotBlank() || selectedTag != null ->
+                    stringResource(R.string.list_empty_filtered)
+                else -> stringResource(R.string.list_empty)
+            }
+            Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
-    when (state.layout) {
+
+    when (layout) {
         MemoLayout.GRID -> LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Adaptive(160.dp),
             contentPadding = PaddingValues(8.dp),
@@ -269,7 +289,12 @@ private fun MemoResultsBody(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            staggeredItems(items = state.rows, key = { it.memo.name }) { row ->
+            items(
+                count = pagingItems.itemCount,
+                key = pagingItems.itemKey { it.memo.name },
+                contentType = pagingItems.itemContentType { "memo" },
+            ) { index ->
+                val row = pagingItems[index] ?: return@items
                 MemoCard(
                     content = row.memo.content,
                     attachments = row.memo.attachments,
@@ -277,19 +302,30 @@ private fun MemoResultsBody(
                     onClick = { onOpenMemo(row.memo.name) },
                 )
             }
+            if (pagingItems.loadState.append is LoadState.Loading) {
+                item { Spacer(Modifier.height(8.dp)) }
+            }
         }
         MemoLayout.LIST -> LazyColumn(
             contentPadding = PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(items = state.rows, key = { it.memo.name }) { row ->
+            items(
+                count = pagingItems.itemCount,
+                key = pagingItems.itemKey { it.memo.name },
+                contentType = pagingItems.itemContentType { "memo" },
+            ) { index ->
+                val row = pagingItems[index] ?: return@items
                 MemoCard(
                     content = row.memo.content,
                     attachments = row.memo.attachments,
                     reminder = row.reminder,
                     onClick = { onOpenMemo(row.memo.name) },
                 )
+            }
+            if (pagingItems.loadState.append is LoadState.Loading) {
+                item { Spacer(Modifier.height(8.dp)) }
             }
         }
     }

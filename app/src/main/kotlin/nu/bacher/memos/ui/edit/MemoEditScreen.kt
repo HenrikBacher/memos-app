@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
@@ -87,6 +88,13 @@ fun MemoEditScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showReminderSheet by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showDiscardConfirm by remember { mutableStateOf(false) }
+
+    // Back path: if there are no unsaved edits, just leave. Otherwise prompt
+    // the user — saving is only triggered explicitly via the Save button.
+    val attemptBack: () -> Unit = {
+        if (vm.isDirty()) showDiscardConfirm = true else onBack()
+    }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
@@ -105,7 +113,7 @@ fun MemoEditScreen(
         state.error?.let { snackbarHostState.showSnackbar(it) }
     }
 
-    BackHandler { vm.save() }
+    BackHandler { attemptBack() }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -120,11 +128,27 @@ fun MemoEditScreen(
                 },
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = { vm.save() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    IconButton(onClick = attemptBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.edit_back),
+                        )
                     }
                 },
                 actions = {
+                    // Save is always available — for new memos and existing
+                    // ones alike. The VM's save() is a no-op on an empty new
+                    // memo (just finishes), so the button is safe to tap any
+                    // time the screen has loaded.
+                    IconButton(
+                        onClick = { vm.save() },
+                        enabled = !state.saving && !state.loading,
+                    ) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = stringResource(R.string.edit_save),
+                        )
+                    }
                     if (state.memoName != null) {
                         IconButton(onClick = { vm.setEditing(!state.isEditing) }) {
                             if (state.isEditing) {
@@ -275,6 +299,32 @@ fun MemoEditScreen(
                 dismissButton = {
                     TextButton(onClick = { showDeleteConfirm = false }) {
                         Text(stringResource(R.string.edit_delete_cancel))
+                    }
+                },
+            )
+        }
+
+        if (showDiscardConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDiscardConfirm = false },
+                title = { Text(stringResource(R.string.edit_discard_confirm_title)) },
+                text = { Text(stringResource(R.string.edit_discard_confirm_message)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDiscardConfirm = false
+                            onBack()
+                        },
+                    ) {
+                        Text(
+                            stringResource(R.string.edit_discard_confirm_action),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDiscardConfirm = false }) {
+                        Text(stringResource(R.string.edit_discard_keep_editing))
                     }
                 },
             )

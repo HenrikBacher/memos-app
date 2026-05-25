@@ -1,13 +1,17 @@
 package nu.bacher.memos.data.repo
 
+import androidx.paging.ExperimentalPagingApi
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
-import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map as mapFlow
 import nu.bacher.memos.data.api.AttachmentCreate
 import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.api.AttachmentRef
@@ -15,49 +19,47 @@ import nu.bacher.memos.data.api.CreateAttachmentRequest
 import nu.bacher.memos.data.api.CreateMemoRequest
 import nu.bacher.memos.data.api.MemoDto
 import nu.bacher.memos.data.api.MemosApi
-import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.api.UpdateMemoRequest
 import nu.bacher.memos.data.api.memoUid
 import nu.bacher.memos.data.db.MemoDao
-import nu.bacher.memos.data.db.MemoEntity
 import nu.bacher.memos.util.currentTimeMillis
 
 /**
  * Offline-first memos store. The Room cache is the UI's source of truth so the
- * list renders instantly on cold start; [refresh] replaces the cache with the
- * server's view, and create/update/delete write through to both.
+ * list renders instantly on cold start; pages are fetched by
+ * [MemosRemoteMediator] (driven by [memosPagingData]), and create/update/delete
+ * write to the cache first, then push to the server with a rollback on failure.
  *
  * Server-side ordering is preserved via `orderInList` — the API's sort rules
  * (pinned, displayTime, etc.) shift with memos versions, so we don't try to
  * recreate them locally.
  */
+@OptIn(ExperimentalPagingApi::class)
 class MemoRepository(
     private val api: MemosApi,
     private val dao: MemoDao,
     private val verifyClientFactory: (serverUrl: String, token: String) -> HttpClient,
 ) {
-    val memos: Flow<List<MemoDto>> = dao.observeAll().map { rows -> rows.map(MemoEntity::toDto) }
 
-    private companion object {
-        const val MAX_REFRESH_PAGES = 200
-    }
-
-    suspend fun refresh(): Result<Unit> = runCatching {
-        val all = mutableListOf<MemoDto>()
-        var token: String? = null
-        var iterations = 0
-        do {
-            val response = api.listMemos(pageToken = token)
-            all += response.memos
-            token = response.nextPageToken?.takeIf { it.isNotBlank() }
-            iterations++
-            // Safety cap — prevent a buggy server from pulling pages forever.
-            // 200 pages at the default pageSize=50 is 10k memos, well beyond
-            // what fits in memory comfortably anyway.
-        } while (token != null && iterations < MAX_REFRESH_PAGES)
-        val now = currentTimeMillis()
-        dao.replaceAll(all.mapIndexed { idx, dto -> dto.toEntity(idx, now) })
-    }
+    /**
+     * Stream of memos paged from the local cache and refilled by the
+     * RemoteMediator on demand. Construct one Pager per call so each consumer
+     * gets its own paging state; the DAO/PagingSource is shared.
+     */
+    val memosPagingData: Flow<PagingData<MemoDto>>
+        get() = Pager(
+            config = PagingConfig(
+                pageSize = SERVER_PAGE_SIZE,
+                // Match initialLoadSize to one server page so the first
+                // network call delivers a full screen without the mediator
+                // immediately issuing an APPEND.
+                initialLoadSize = SERVER_PAGE_SIZE,
+                prefetchDistance = SERVER_PAGE_SIZE / 2,
+                enablePlaceholders = false,
+            ),
+            remoteMediator = MemosRemoteMediator(api = api, dao = dao),
+            pagingSourceFactory = { dao.pagingSource() },
+        ).flow.mapFlow { it.map { entity -> entity.toDto() } }
 
     suspend fun get(name: String): MemoDto {
         val memo = api.getMemo(name.memoUid())
@@ -66,42 +68,88 @@ class MemoRepository(
         return memo
     }
 
+    /**
+     * Optimistic create. The new memo lands at the top of the local cache
+     * with a client-side temp id; the API call follows, and on success the
+     * temp row is replaced with the server-issued row. On failure the temp
+     * row is removed and the exception propagates.
+     *
+     * The reminder table doesn't reference temp ids (MemoEditViewModel holds
+     * the reminder in memory until the real memo name comes back), so the
+     * temp row never has dangling foreign references.
+     */
     suspend fun create(
         content: String,
         visibility: String = "PRIVATE",
         attachments: List<AttachmentDto> = emptyList(),
     ): MemoDto {
-        val memo = api.createMemo(
-            CreateMemoRequest(
-                content = content,
-                visibility = visibility,
-                attachments = attachments.takeIf { it.isNotEmpty() }
-                    ?.map { AttachmentRef(name = it.name) },
-            ),
+        val tempName = "memos/local-${currentTimeMillis()}"
+        val now = currentTimeMillis()
+        val tempDto = MemoDto(
+            name = tempName,
+            content = content,
+            visibility = visibility,
+            attachments = attachments,
+            createTime = null,
+            displayTime = null,
         )
-        // New memo lands at the top — shift existing rows down. Single
-        // UPDATE + upsert, transactionally, instead of rewriting the table.
-        dao.insertAtTop(memo.toEntity(0, currentTimeMillis()))
-        return memo
+        dao.insertAtTop(tempDto.toEntity(0, now))
+        return try {
+            val saved = api.createMemo(
+                CreateMemoRequest(
+                    content = content,
+                    visibility = visibility,
+                    attachments = attachments.takeIf { it.isNotEmpty() }
+                        ?.map { AttachmentRef(name = it.name) },
+                ),
+            )
+            // Swap temp row for the server row, keeping order=0.
+            dao.delete(tempName)
+            dao.insertAtTop(saved.toEntity(0, currentTimeMillis()))
+            saved
+        } catch (t: Throwable) {
+            dao.delete(tempName)
+            throw t
+        }
     }
 
+    /**
+     * Optimistic update. Cache is updated immediately; on API failure the
+     * prior entity is restored. Read-modify-write is racy in principle (a
+     * concurrent refresh could overwrite the cache in between), but the UI
+     * doesn't drive concurrent edits to the same memo, so we accept that.
+     */
     suspend fun update(
         name: String,
         content: String,
         visibility: String? = null,
         attachments: List<AttachmentDto>? = null,
     ): MemoDto {
-        val updated = api.updateMemo(
-            name.memoUid(),
-            UpdateMemoRequest(
-                content = content,
-                visibility = visibility,
-                attachments = attachments?.map { AttachmentRef(name = it.name) },
-            ),
+        val prior = dao.get(name)
+            ?: error("update($name): no cached entity to update")
+        val now = currentTimeMillis()
+        val optimistic = prior.copy(
+            content = content,
+            visibility = visibility ?: prior.visibility,
+            attachmentsJson = attachments?.let { encodeAttachments(it) } ?: prior.attachmentsJson,
+            cachedAtEpochMs = now,
         )
-        val cached = dao.get(updated.name)
-        dao.upsert(updated.toEntity(cached?.orderInList ?: Int.MAX_VALUE, currentTimeMillis()))
-        return updated
+        dao.upsert(optimistic)
+        return try {
+            val saved = api.updateMemo(
+                name.memoUid(),
+                UpdateMemoRequest(
+                    content = content,
+                    visibility = visibility,
+                    attachments = attachments?.map { AttachmentRef(name = it.name) },
+                ),
+            )
+            dao.upsert(saved.toEntity(prior.orderInList, currentTimeMillis()))
+            saved
+        } catch (t: Throwable) {
+            dao.upsert(prior)
+            throw t
+        }
     }
 
     /**
@@ -130,9 +178,19 @@ class MemoRepository(
         )
     }
 
+    /** Optimistic delete — cache row goes first, restored if the API throws. */
     suspend fun delete(name: String) {
-        api.deleteMemo(name.memoUid())
+        val prior = dao.get(name) ?: run {
+            api.deleteMemo(name.memoUid())
+            return
+        }
         dao.delete(name)
+        try {
+            api.deleteMemo(name.memoUid())
+        } catch (t: Throwable) {
+            dao.upsert(prior)
+            throw t
+        }
     }
 
     /** Wipe the local cache. Called on logout. */
@@ -159,41 +217,15 @@ class MemoRepository(
             client.close()
         }
     }
+
+    private companion object {
+        const val SERVER_PAGE_SIZE = 50
+    }
 }
 
-private val AttachmentListSerializer = ListSerializer(AttachmentDto.serializer())
-
-private fun MemoDto.toEntity(orderInList: Int, cachedAtEpochMs: Long): MemoEntity =
-    MemoEntity(
-        name = name,
-        uid = uid,
-        content = content,
-        visibility = visibility,
-        state = state,
-        pinned = pinned,
-        createTime = createTime,
-        updateTime = updateTime,
-        displayTime = displayTime,
-        creator = creator,
-        tagsCsv = tags.joinToString(","),
-        attachmentsJson = if (attachments.isEmpty()) "" else MemosJson.encodeToString(AttachmentListSerializer, attachments),
-        orderInList = orderInList,
-        cachedAtEpochMs = cachedAtEpochMs,
-    )
-
-private fun MemoEntity.toDto(): MemoDto =
-    MemoDto(
-        name = name,
-        uid = uid,
-        content = content,
-        visibility = visibility,
-        state = state,
-        pinned = pinned,
-        createTime = createTime,
-        updateTime = updateTime,
-        displayTime = displayTime,
-        creator = creator,
-        tags = if (tagsCsv.isEmpty()) emptyList() else tagsCsv.split(','),
-        attachments = if (attachmentsJson.isEmpty()) emptyList()
-        else MemosJson.decodeFromString(AttachmentListSerializer, attachmentsJson),
+private fun encodeAttachments(attachments: List<AttachmentDto>): String =
+    if (attachments.isEmpty()) ""
+    else nu.bacher.memos.data.api.MemosJson.encodeToString(
+        kotlinx.serialization.builtins.ListSerializer(AttachmentDto.serializer()),
+        attachments,
     )
