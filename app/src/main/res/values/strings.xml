@@ -7,8 +7,6 @@
     <string name="login_token">Access token</string>
     <string name="login_token_hint">From Settings → My Account</string>
     <string name="login_connect">Connect</string>
-    <string name="login_error_invalid_url">Invalid URL</string>
-    <string name="login_error_failed">Could not reach server: %1$s</string>
 
     <string name="list_title">Memos</string>
     <string name="list_empty">No memos yet. Tap + to create one.</string>
@@ -25,14 +23,12 @@
     <string name="list_view_list">List view</string>
     <string name="attachment_image">Image attachment</string>
     <string name="attachment_more">+%1$d more</string>
-    <string name="attachment_count">%1$d attachments</string>
     <string name="attachment_open_failed">No app can open this file</string>
     <string name="attachment_viewer_close">Close</string>
 
     <string name="edit_title_new">New memo</string>
     <string name="edit_title_edit">Edit memo</string>
     <string name="edit_content_hint">Write a memo…</string>
-    <string name="edit_save">Save</string>
     <string name="edit_delete">Delete</string>
     <string name="edit_add_reminder">Add reminder</string>
     <string name="edit_reminder_at">Reminder: %1$s</string>
@@ -42,13 +38,11 @@
     <string name="edit_add_attachment">Add file</string>
     <string name="edit_remove_attachment">Remove attachment</string>
     <string name="edit_uploading">Uploading…</string>
-    <string name="edit_visibility_label">Visibility</string>
     <string name="edit_visibility_private">Private</string>
     <string name="edit_visibility_protected">Protected</string>
     <string name="edit_visibility_public">Public</string>
     <string name="edit_share">Share link</string>
     <string name="edit_share_chooser">Share memo</string>
-    <string name="edit_more_actions">More actions</string>
     <string name="edit_delete_confirm_title">Delete memo?</string>
     <string name="edit_delete_confirm_message">This memo will be removed from your server. This can\'t be undone.</string>
     <string name="edit_delete_confirm_action">Delete</string>
@@ -56,7 +50,6 @@
 
     <string name="reminder_sheet_title">Remind me…</string>
     <string name="reminder_pick_date">Pick date</string>
-    <string name="reminder_pick_time">Pick time</string>
     <string name="reminder_set">Set reminder</string>
     <string name="reminder_perm_notifications">Notifications permission is needed for reminders.</string>
     <string name="reminder_perm_exact_alarm">Allow exact alarms so reminders fire at the time you set.</string>
@@ -64,8 +57,6 @@
 
     <string name="notification_channel_reminders">Memo reminders</string>
     <string name="notification_channel_reminders_desc">Notifications for time- and location-based memo reminders.</string>
-    <string name="notification_action_open">Open memo</string>
-    <string name="notification_action_done">Done</string>
 
     <string name="share_saving">Saving memo…</string>
     <string name="share_saved">Memo saved</string>
