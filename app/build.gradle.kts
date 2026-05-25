@@ -125,13 +125,8 @@ dependencies {
 }
 
 play {
-    // Internal testing track by default — promote to closed/open/production
-    // explicitly with `--track <name>` once you've confirmed the upload.
     track.set("internal")
-    // Upload as Draft so a botched publish doesn't immediately go live; flip
-    // to COMPLETED (or use `--release-status completed`) when ready.
-    releaseStatus.set(ReleaseStatus.DRAFT)
-    // App bundles, not APKs — required for new submissions since 2021.
+    releaseStatus.set(ReleaseStatus.COMPLETED)
     defaultToAppBundles.set(true)
     publisherCredentialsPath?.let { serviceAccountCredentials.set(file(it)) }
 }
