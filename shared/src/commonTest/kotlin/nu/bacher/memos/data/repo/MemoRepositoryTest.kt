@@ -6,19 +6,32 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.TextContent
+import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.readRemaining
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.readByteArray
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.db.MemoEntity
+import kotlin.coroutines.coroutineContext
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -158,11 +171,57 @@ class MemoRepositoryTest {
         assertEquals(emptyList(), dao.getAll())
     }
 
+    @OptIn(ExperimentalEncodingApi::class)
     @Test
-    fun uploadAttachment_base64_encodes_bytes_in_request_body() = runTest {
-        var capturedBody: String? = null
+    fun uploadAttachment_streams_base64_json_envelope() = runTest {
+        // 100 KB — large enough to span several chunks of the streaming encoder
+        // so we exercise the boundary handling, not just a single small write.
+        val bytes = ByteArray(100_000) { (it % 251).toByte() }
+        var capturedBody: ByteArray? = null
+        var capturedContentLength: Long? = null
         val engine = MockEngine { request ->
-            capturedBody = (request.body as? TextContent)?.text
+            capturedContentLength = request.body.contentLength
+            capturedBody = drainBody(request.body)
+            respond(
+                """{"name":"attachments/x","filename":"a.bin","type":"application/octet-stream"}""",
+                HttpStatusCode.OK,
+                jsonHeaders(),
+            )
+        }
+        val repo = repo(engine, FakeMemoDao())
+
+        val result = repo.uploadAttachment(
+            bytes = bytes,
+            filename = "a.bin",
+            type = "application/octet-stream",
+            memoName = "memos/abc",
+        )
+
+        assertEquals("attachments/x", result.name)
+        val body = assertNotNull(capturedBody)
+
+        // Content-Length must be set (not chunked): some self-hosted memos
+        // deployments sit behind proxies that reject chunked uploads.
+        assertEquals(body.size.toLong(), capturedContentLength)
+
+        // Parse the envelope and decode the content field — the streaming path
+        // must produce a payload byte-identical to what kotlinx-serialization
+        // would have produced from a {filename, type, memo, content} object.
+        val root = Json.parseToJsonElement(body.decodeToString()).jsonObject
+        val attachment = root.getValue("attachment").jsonObject
+        assertEquals("a.bin", attachment.getValue("filename").jsonPrimitive.content)
+        assertEquals("application/octet-stream", attachment.getValue("type").jsonPrimitive.content)
+        assertEquals("memos/abc", attachment.getValue("memo").jsonPrimitive.content)
+        val decoded = Base64.decode(attachment.getValue("content").jsonPrimitive.content)
+        assertContentEquals(bytes, decoded)
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    @Test
+    fun uploadAttachment_omits_memo_field_when_null() = runTest {
+        var capturedBody: ByteArray? = null
+        val engine = MockEngine { request ->
+            capturedBody = drainBody(request.body)
             respond(
                 """{"name":"attachments/x","filename":"a.png","type":"image/png"}""",
                 HttpStatusCode.OK,
@@ -171,17 +230,20 @@ class MemoRepositoryTest {
         }
         val repo = repo(engine, FakeMemoDao())
 
-        val result = repo.uploadAttachment(
+        repo.uploadAttachment(
             bytes = byteArrayOf(1, 2, 3),
             filename = "a.png",
             type = "image/png",
+            memoName = null,
         )
 
-        assertEquals("attachments/x", result.name)
-        assertNotNull(capturedBody)
-        // Base64 of bytes 0x01 0x02 0x03 → "AQID". Standard Base64 alphabet.
-        assertTrue("AQID" in capturedBody!!, "body did not contain expected base64: $capturedBody")
-        assertTrue("\"filename\":\"a.png\"" in capturedBody!!)
+        val root = Json.parseToJsonElement(capturedBody!!.decodeToString()).jsonObject
+        val attachment = root.getValue("attachment").jsonObject
+        // memos's server treats an unset memo differently from one set to ""
+        // — the streaming envelope must omit the field entirely, matching
+        // explicitNulls = false on MemosJson.
+        assertNull(attachment["memo"])
+        assertEquals("AQID", attachment.getValue("content").jsonPrimitive.content)
     }
 
     @Test
@@ -210,6 +272,29 @@ class MemoRepositoryTest {
     }
 
     private fun jsonHeaders() = headersOf(HttpHeaders.ContentType, "application/json")
+
+    /**
+     * Drives a [OutgoingContent.WriteChannelContent] body and collects its
+     * bytes. MockEngine hands us the request body untouched, so for streaming
+     * uploads we have to actually run the writer to see what would have hit
+     * the wire.
+     */
+    private suspend fun drainBody(content: OutgoingContent): ByteArray {
+        require(content is OutgoingContent.WriteChannelContent) {
+            "expected streaming body but got ${content::class.simpleName}"
+        }
+        return coroutineScope {
+            val ch = ByteChannel(autoFlush = true)
+            CoroutineScope(coroutineContext).launch {
+                try {
+                    content.writeTo(ch)
+                } finally {
+                    ch.flushAndClose()
+                }
+            }
+            ch.readRemaining().readByteArray()
+        }
+    }
 
     private fun entity(name: String, order: Int = 0) = MemoEntity(
         name = name,

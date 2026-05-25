@@ -72,23 +72,6 @@ data class UpdateMemoRequest(
 @Serializable
 data class AttachmentRef(val name: String)
 
-/**
- * Upload payload. `content` is base64-encoded file bytes (proto bytes fields
- * are mapped to base64 strings in JSON). `memo` is optional — leave null when
- * creating an attachment for a memo that doesn't exist yet; the server will
- * link it when the memo is created with a matching [AttachmentRef].
- */
-@Serializable
-data class AttachmentCreate(
-    val filename: String,
-    val type: String,
-    val content: String,
-    val memo: String? = null,
-)
-
-@Serializable
-data class CreateAttachmentRequest(val attachment: AttachmentCreate)
-
 @Serializable
 data class ListMemosResponse(
     val memos: List<MemoDto> = emptyList(),

@@ -8,16 +8,14 @@ import androidx.paging.map
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map as mapFlow
 import kotlinx.coroutines.withContext
-import nu.bacher.memos.data.api.AttachmentCreate
+import kotlinx.io.Buffer
+import kotlinx.io.RawSource
 import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.api.AttachmentRef
-import nu.bacher.memos.data.api.CreateAttachmentRequest
 import nu.bacher.memos.data.api.CreateMemoRequest
 import nu.bacher.memos.data.api.MemoDto
 import nu.bacher.memos.data.api.MemosApi
@@ -167,26 +165,24 @@ class MemoRepository(
      * links the attachment to that memo immediately; for new memos pass null
      * here and reference the returned attachment by name in the next
      * [create] call.
+     *
+     * The bytes are streamed through a base64-encoding JSON envelope rather
+     * than being base64+JSON-encoded into intermediate strings (see
+     * StreamingAttachmentContent). For a 20 MB file that's the difference
+     * between a ~85 MB peak and a ~21 MB peak.
      */
-    @OptIn(ExperimentalEncodingApi::class)
     suspend fun uploadAttachment(
         bytes: ByteArray,
         filename: String,
         type: String,
         memoName: String? = null,
-    ): AttachmentDto {
-        val encoded = Base64.encode(bytes)
-        return api.createAttachment(
-            CreateAttachmentRequest(
-                AttachmentCreate(
-                    filename = filename,
-                    type = type,
-                    content = encoded,
-                    memo = memoName,
-                ),
-            ),
-        )
-    }
+    ): AttachmentDto = api.createAttachment(
+        filename = filename,
+        type = type,
+        byteCount = bytes.size.toLong(),
+        memo = memoName,
+        openSource = { ByteArrayRawSource(bytes) },
+    )
 
     /** Optimistic delete — cache row goes first, restored if the API throws. */
     suspend fun delete(name: String) {
@@ -231,6 +227,23 @@ class MemoRepository(
     private companion object {
         const val SERVER_PAGE_SIZE = 50
     }
+}
+
+/**
+ * Lets [uploadAttachment] feed an in-memory ByteArray through the streaming
+ * upload path without copying it into a [Buffer] first. Each read pulls a
+ * chunk-sized slice into the caller's sink — only the chunk is duplicated.
+ */
+private class ByteArrayRawSource(private val bytes: ByteArray) : RawSource {
+    private var pos = 0
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
+        if (pos >= bytes.size) return -1L
+        val n = minOf(byteCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), bytes.size - pos)
+        sink.write(bytes, pos, pos + n)
+        pos += n
+        return n.toLong()
+    }
+    override fun close() {}
 }
 
 private fun encodeAttachments(attachments: List<AttachmentDto>): String =
