@@ -42,4 +42,12 @@ class FakeMemoDao : MemoDao {
     override suspend fun clear() {
         state.value = emptyList()
     }
+
+    override suspend fun shiftOrderExcept(exceptName: String) {
+        state.update { current ->
+            current.map { row ->
+                if (row.name == exceptName) row else row.copy(orderInList = row.orderInList + 1)
+            }
+        }
+    }
 }

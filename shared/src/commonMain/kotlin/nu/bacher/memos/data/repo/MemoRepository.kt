@@ -79,16 +79,9 @@ class MemoRepository(
                     ?.map { AttachmentRef(name = it.name) },
             ),
         )
-        // New memo lands at the top — shift existing rows down. Cheaper than
-        // re-fetching the whole list; the next refresh() will reconcile if the
-        // server's ordering disagrees.
-        val existing = dao.getAll().filter { it.name != memo.name }
-        dao.replaceAll(
-            buildList {
-                add(memo.toEntity(0, currentTimeMillis()))
-                existing.forEachIndexed { idx, row -> add(row.copy(orderInList = idx + 1)) }
-            },
-        )
+        // New memo lands at the top — shift existing rows down. Single
+        // UPDATE + upsert, transactionally, instead of rewriting the table.
+        dao.insertAtTop(memo.toEntity(0, currentTimeMillis()))
         return memo
     }
 

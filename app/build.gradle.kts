@@ -103,5 +103,5 @@ dependencies {
     implementation(libs.markdown.renderer.m3)
 
     implementation(libs.coil.compose)
-    implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.network.ktor3)
 }

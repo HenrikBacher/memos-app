@@ -3,6 +3,7 @@ package nu.bacher.memos.data.auth
 import com.russhwolf.settings.ExperimentalSettingsApi
 import com.russhwolf.settings.ObservableSettings
 import com.russhwolf.settings.coroutines.getStringOrNullFlow
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -17,6 +18,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * If decryption fails (legacy plaintext from before encryption was wired, a
  * Keystore reset, or a corrupt envelope) [read] and [config] return null so
  * the user is sent back through login rather than crashing.
+ *
+ * [read] is called on every HTTP request (the Ktor DefaultRequest block
+ * resolves the bearer per request), so we cache the last decrypted result
+ * keyed by the encrypted ciphertext — the [SettingsValues]/cipher pair is
+ * an authoritative cache key, and we re-decrypt only when the stored
+ * ciphertext actually changes. Tink AEAD on the hot path was visibly
+ * dominating request setup.
  */
 @OptIn(ExperimentalSettingsApi::class)
 class AuthStore(
@@ -26,11 +34,15 @@ class AuthStore(
 
     data class Config(val serverUrl: String, val token: String)
 
+    private data class CacheEntry(val urlSource: String, val tokenSource: String, val config: Config)
+
+    @Volatile
+    private var cache: CacheEntry? = null
+
     fun read(): Config? {
         val url = settings.getStringOrNull(KEY_URL)?.takeIf { it.isNotBlank() } ?: return null
         val encrypted = settings.getStringOrNull(KEY_TOKEN)?.takeIf { it.isNotBlank() } ?: return null
-        val token = cipher.decrypt(encrypted) ?: return null
-        return Config(url, token)
+        return decryptOrCached(url, encrypted)
     }
 
     val config: Flow<Config?> = combine(
@@ -38,20 +50,29 @@ class AuthStore(
         settings.getStringOrNullFlow(KEY_TOKEN),
     ) { url, encrypted ->
         if (url.isNullOrBlank() || encrypted.isNullOrBlank()) return@combine null
-        val token = cipher.decrypt(encrypted) ?: return@combine null
-        Config(url, token)
+        decryptOrCached(url, encrypted)
     }.distinctUntilChanged()
 
     fun save(serverUrl: String, token: String) {
+        cache = null
         settings.putString(KEY_URL, serverUrl.trimEnd('/'))
         settings.putString(KEY_TOKEN, cipher.encrypt(token))
     }
 
     fun clear() {
+        cache = null
         // Only remove auth keys — settings.clear() would wipe unrelated
         // preferences (layout, etc.) that should survive logout.
         settings.remove(KEY_URL)
         settings.remove(KEY_TOKEN)
+    }
+
+    private fun decryptOrCached(url: String, encrypted: String): Config? {
+        cache?.takeIf { it.urlSource == url && it.tokenSource == encrypted }?.let { return it.config }
+        val token = cipher.decrypt(encrypted) ?: return null
+        val config = Config(url, token)
+        cache = CacheEntry(url, encrypted, config)
+        return config
     }
 
     private companion object {

@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.HttpClientEngineFactory
 import io.ktor.client.plugins.DefaultRequest
+import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
@@ -70,6 +71,43 @@ fun buildMemosHttpClient(
         header(HttpHeaders.Accept, "application/json")
     }
 }
+
+/**
+ * Build the HttpClient Coil uses for image fetches. Memos markdown can
+ * reference arbitrary external image URLs and attachments may carry an
+ * `externalLink` to a CDN — so we attach the bearer token only when the
+ * request host matches the configured memos server. Same defensive contract
+ * the previous OkHttp interceptor enforced, but here we stay on the Ktor
+ * stack so OkHttp doesn't need to be re-introduced as a peer HTTP client.
+ *
+ * No DefaultRequest URL rewrite — Coil hands us absolute URLs and we must
+ * respect their host.
+ */
+fun buildImageHttpClient(
+    engine: HttpClientEngineFactory<*>,
+    authStore: AuthStore,
+): HttpClient = HttpClient(engine) {
+    // Coil expects to see 4xx/5xx itself (it surfaces them through its own
+    // error path); don't translate them into exceptions here.
+    expectSuccess = false
+    // Follow redirects within the memos host so signed-URL bounces work; if
+    // a redirect crosses hosts the plugin below simply won't attach the
+    // token on the next hop.
+    followRedirects = true
+
+    install(memosImageAuthPlugin(authStore))
+}
+
+private fun memosImageAuthPlugin(authStore: AuthStore) =
+    createClientPlugin("MemosImageAuth") {
+        onRequest { request, _ ->
+            val config = authStore.read() ?: return@onRequest
+            val serverHost = URLBuilder().takeFrom(config.serverUrl.trimEnd('/')).host
+            if (request.url.host.equals(serverHost, ignoreCase = true)) {
+                request.headers.append(HttpHeaders.Authorization, "Bearer ${config.token}")
+            }
+        }
+    }
 
 /**
  * Build a one-shot HttpClient against a specific server/token, used by login

@@ -30,6 +30,9 @@ interface MemoDao {
     @Query("DELETE FROM memos")
     suspend fun clear()
 
+    @Query("UPDATE memos SET orderInList = orderInList + 1 WHERE name != :exceptName")
+    suspend fun shiftOrderExcept(exceptName: String)
+
     /**
      * Replaces the entire cache with [memos], deleting rows that no longer
      * exist on the server. Runs in one transaction so the list flow never
@@ -39,5 +42,16 @@ interface MemoDao {
     suspend fun replaceAll(memos: List<MemoEntity>) {
         clear()
         upsertAll(memos)
+    }
+
+    /**
+     * Inserts [memo] at the top of the list, shifting every other row's
+     * [MemoEntity.orderInList] down by one. The next `refresh()` will
+     * reconcile if the server's ordering disagrees.
+     */
+    @Transaction
+    suspend fun insertAtTop(memo: MemoEntity) {
+        shiftOrderExcept(memo.name)
+        upsert(memo.copy(orderInList = 0))
     }
 }
