@@ -2,6 +2,7 @@ package nu.bacher.memos.data.api
 
 import com.russhwolf.settings.MapSettings
 import nu.bacher.memos.data.auth.AuthStore
+import nu.bacher.memos.data.auth.SecretCipher
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -10,8 +11,13 @@ import kotlin.test.assertTrue
 
 class AttachmentUrlTest {
 
+    private val identityCipher = object : SecretCipher {
+        override fun encrypt(plaintext: String): String = plaintext
+        override fun decrypt(ciphertext: String): String? = ciphertext
+    }
+
     private fun authStoreWith(server: String = "https://memos.example.com"): AuthStore =
-        AuthStore(MapSettings()).also { it.save(server, "tok") }
+        AuthStore(MapSettings(), identityCipher).also { it.save(server, "tok") }
 
     @Test
     fun urlOrNull_builds_server_file_url_from_name_and_filename() {
@@ -49,7 +55,7 @@ class AttachmentUrlTest {
     fun urlOrNull_returns_null_when_not_logged_in() {
         val att = AttachmentDto(name = "attachments/x", filename = "a.png")
         // AuthStore with no saved credentials → read() returns null.
-        assertNull(att.urlOrNull(AuthStore(MapSettings())))
+        assertNull(att.urlOrNull(AuthStore(MapSettings(), identityCipher)))
     }
 
     @Test

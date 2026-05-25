@@ -71,6 +71,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Full history is required so `git rev-list --count HEAD` produces
+          # a stable, monotonically increasing versionCode.
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -93,7 +97,7 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
 
-      - name: Resolve version name from tag
+      - name: Resolve version metadata
         id: version
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
@@ -101,13 +105,14 @@ jobs:
           else
             echo "name=" >> "$GITHUB_OUTPUT"
           fi
+          echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Build release AAB
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/upload.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: ./gradlew :app:bundleRelease -PappVersionCode=${{ github.run_number }} -PappVersionName=${{ steps.version.outputs.name }}
+        run: ./gradlew :app:bundleRelease -PappVersionCode=${{ steps.version.outputs.code }} -PappVersionName=${{ steps.version.outputs.name }}
 
       - name: Upload release AAB
         uses: actions/upload-artifact@v7

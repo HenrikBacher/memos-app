@@ -10,33 +10,41 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 /**
  * Stores the memos server URL + access token via multiplatform-settings.
  *
- * The Android binding uses a private SharedPreferences file. We deliberately
- * don't add encryption: the file lives in app-private storage (other apps
- * can't read it without root) and the filesystem is encrypted at rest. The
- * file is excluded from cloud backup / device transfer (see
- * backup_rules.xml and data_extraction_rules.xml).
+ * The token is encrypted at rest via [SecretCipher] (Tink AEAD with an
+ * Android Keystore master key on Android). The URL is stored as-is — it's
+ * not sensitive and we need it to render the login screen state.
+ *
+ * If decryption fails (legacy plaintext from before encryption was wired, a
+ * Keystore reset, or a corrupt envelope) [read] and [config] return null so
+ * the user is sent back through login rather than crashing.
  */
 @OptIn(ExperimentalSettingsApi::class)
-class AuthStore(private val settings: ObservableSettings) {
+class AuthStore(
+    private val settings: ObservableSettings,
+    private val cipher: SecretCipher,
+) {
 
     data class Config(val serverUrl: String, val token: String)
 
     fun read(): Config? {
         val url = settings.getStringOrNull(KEY_URL)?.takeIf { it.isNotBlank() } ?: return null
-        val token = settings.getStringOrNull(KEY_TOKEN)?.takeIf { it.isNotBlank() } ?: return null
+        val encrypted = settings.getStringOrNull(KEY_TOKEN)?.takeIf { it.isNotBlank() } ?: return null
+        val token = cipher.decrypt(encrypted) ?: return null
         return Config(url, token)
     }
 
     val config: Flow<Config?> = combine(
         settings.getStringOrNullFlow(KEY_URL),
         settings.getStringOrNullFlow(KEY_TOKEN),
-    ) { url, token ->
-        if (url.isNullOrBlank() || token.isNullOrBlank()) null else Config(url, token)
+    ) { url, encrypted ->
+        if (url.isNullOrBlank() || encrypted.isNullOrBlank()) return@combine null
+        val token = cipher.decrypt(encrypted) ?: return@combine null
+        Config(url, token)
     }.distinctUntilChanged()
 
     fun save(serverUrl: String, token: String) {
         settings.putString(KEY_URL, serverUrl.trimEnd('/'))
-        settings.putString(KEY_TOKEN, token)
+        settings.putString(KEY_TOKEN, cipher.encrypt(token))
     }
 
     fun clear() {

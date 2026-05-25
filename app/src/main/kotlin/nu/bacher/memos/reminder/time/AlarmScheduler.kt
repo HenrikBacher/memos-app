@@ -15,7 +15,7 @@ import androidx.core.content.getSystemService
  * SCHEDULE_EXACT_ALARM — this is the only API that escapes Doze deferral and
  * App Standby throttling for non-alarm-clock apps. Falls back to
  * setAndAllowWhileIdle without the grant. Alarms are LOST on reboot —
- * BootReceiver re-arms them from the SQLDelight table.
+ * BootReceiver re-arms them from the Room reminders table.
  */
 class AlarmScheduler(private val context: Context) : ReminderScheduler {
     private val alarmManager = context.getSystemService<AlarmManager>()!!

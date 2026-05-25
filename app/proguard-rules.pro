@@ -17,6 +17,3 @@
 # Ktor
 -dontwarn io.ktor.**
 -keep class io.ktor.client.engine.okhttp.** { *; }
-
-# SQLDelight Android driver
--keep class app.cash.sqldelight.driver.android.** { *; }

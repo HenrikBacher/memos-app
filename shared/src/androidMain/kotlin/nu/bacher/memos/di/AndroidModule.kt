@@ -5,6 +5,8 @@ import com.russhwolf.settings.ObservableSettings
 import com.russhwolf.settings.SharedPreferencesSettings
 import io.ktor.client.engine.HttpClientEngineFactory
 import io.ktor.client.engine.okhttp.OkHttp
+import nu.bacher.memos.data.auth.SecretCipher
+import nu.bacher.memos.data.auth.TinkSecretCipher
 import nu.bacher.memos.data.db.createMemosDatabase
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
@@ -27,4 +29,6 @@ fun androidPlatformModule() = module {
         )
         SharedPreferencesSettings(prefs)
     }
+
+    single<SecretCipher> { TinkSecretCipher(androidContext()) }
 }
