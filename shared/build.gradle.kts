@@ -47,6 +47,7 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
 
             api(libs.androidx.room.runtime)
+            implementation(libs.androidx.sqlite.bundled)
 
             api(libs.koin.core)
 
