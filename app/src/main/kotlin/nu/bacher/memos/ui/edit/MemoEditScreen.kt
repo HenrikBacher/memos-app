@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
@@ -87,7 +86,6 @@ fun MemoEditScreen(
     val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showReminderSheet by remember { mutableStateOf(false) }
-    var moreOpen by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -156,25 +154,11 @@ fun MemoEditScreen(
                         }) {
                             Icon(Icons.Filled.Share, contentDescription = stringResource(R.string.edit_share))
                         }
-                        Box {
-                            IconButton(onClick = { moreOpen = true }) {
-                                Icon(
-                                    Icons.Filled.MoreVert,
-                                    contentDescription = stringResource(R.string.edit_more_actions),
-                                )
-                            }
-                            DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.edit_delete)) },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Delete, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        moreOpen = false
-                                        showDeleteConfirm = true
-                                    },
-                                )
-                            }
+                        IconButton(onClick = { showDeleteConfirm = true }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.edit_delete),
+                            )
                         }
                     }
                 },
