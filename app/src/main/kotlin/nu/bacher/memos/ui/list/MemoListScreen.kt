@@ -69,7 +69,7 @@ import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
-import java.text.DateFormat
+import androidx.compose.ui.platform.LocalContext
 import java.util.Date
 import nu.bacher.memos.R
 import nu.bacher.memos.data.api.AttachmentDto
@@ -413,8 +413,9 @@ private fun MemoCard(
                         modifier = Modifier.size(14.dp),
                     )
                     Spacer(Modifier.size(4.dp))
-                    val label = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                        .format(Date(reminder.triggerAtEpochMs))
+                    val context = LocalContext.current
+                    val date = Date(reminder.triggerAtEpochMs)
+                    val label = "${android.text.format.DateFormat.getDateFormat(context).format(date)} ${android.text.format.DateFormat.getTimeFormat(context).format(date)}"
                     Text(
                         label,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

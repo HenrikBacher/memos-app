@@ -44,7 +44,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
-import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
 import nu.bacher.memos.R
@@ -113,10 +112,17 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
-                Text(date?.let { dateLabel(it) } ?: stringResource(R.string.reminder_pick_date))
+                Text(date?.let { dateLabel(context, it) } ?: stringResource(R.string.reminder_pick_date))
             }
             OutlinedButton(onClick = { showTime = true }, modifier = Modifier.weight(1f)) {
-                Text(String.format("%02d:%02d", hour, minute))
+                val timeLabel = remember(hour, minute) {
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, hour)
+                        set(Calendar.MINUTE, minute)
+                    }
+                    android.text.format.DateFormat.getTimeFormat(context).format(cal.time)
+                }
+                Text(timeLabel)
             }
         }
 
@@ -169,7 +175,7 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
         ) { DatePicker(state = s) }
     }
     if (showTime) {
-        val s = rememberTimePickerState(initialHour = hour, initialMinute = minute, is24Hour = true)
+        val s = rememberTimePickerState(initialHour = hour, initialMinute = minute, is24Hour = android.text.format.DateFormat.is24HourFormat(context))
         AlertDialog(
             onDismissRequest = {
                 showTime = false
@@ -243,5 +249,5 @@ private fun openExactAlarmSettings(context: Context) {
     context.startActivity(intent)
 }
 
-private fun dateLabel(millis: Long): String =
-    DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(millis))
+private fun dateLabel(context: Context, millis: Long): String =
+    android.text.format.DateFormat.getMediumDateFormat(context).format(Date(millis))
