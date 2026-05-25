@@ -386,6 +386,7 @@ private fun EditActionsRow(
                 label = { Text(stringResource(R.string.edit_add_reminder)) },
             )
         } else {
+            val context = LocalContext.current
             val label = stringResource(
                 R.string.edit_reminder_at,
                 android.text.format.DateUtils.formatDateTime(
