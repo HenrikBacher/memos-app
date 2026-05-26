@@ -208,11 +208,10 @@ class MemoRepositoryTest {
         // must produce a payload byte-identical to what kotlinx-serialization
         // would have produced from a {filename, type, memo, content} object.
         val root = Json.parseToJsonElement(body.decodeToString()).jsonObject
-        val attachment = root.getValue("attachment").jsonObject
-        assertEquals("a.bin", attachment.getValue("filename").jsonPrimitive.content)
-        assertEquals("application/octet-stream", attachment.getValue("type").jsonPrimitive.content)
-        assertEquals("memos/abc", attachment.getValue("memo").jsonPrimitive.content)
-        val decoded = Base64.decode(attachment.getValue("content").jsonPrimitive.content)
+        assertEquals("a.bin", root.getValue("filename").jsonPrimitive.content)
+        assertEquals("application/octet-stream", root.getValue("type").jsonPrimitive.content)
+        assertEquals("memos/abc", root.getValue("memo").jsonPrimitive.content)
+        val decoded = Base64.decode(root.getValue("content").jsonPrimitive.content)
         assertContentEquals(bytes, decoded)
     }
 
@@ -238,12 +237,11 @@ class MemoRepositoryTest {
         )
 
         val root = Json.parseToJsonElement(capturedBody!!.decodeToString()).jsonObject
-        val attachment = root.getValue("attachment").jsonObject
         // memos's server treats an unset memo differently from one set to ""
         // — the streaming envelope must omit the field entirely, matching
         // explicitNulls = false on MemosJson.
-        assertNull(attachment["memo"])
-        assertEquals("AQID", attachment.getValue("content").jsonPrimitive.content)
+        assertNull(root["memo"])
+        assertEquals("AQID", root.getValue("content").jsonPrimitive.content)
     }
 
     @Test
