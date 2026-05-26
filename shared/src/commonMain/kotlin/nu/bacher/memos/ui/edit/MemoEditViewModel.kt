@@ -2,6 +2,7 @@ package nu.bacher.memos.ui.edit
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -94,6 +95,7 @@ class MemoEditViewModel(
                     ),
                 )
             }.onFailure { t ->
+                if (t is CancellationException) throw t
                 _state.update { it.copy(loading = false, error = t.message) }
             }
         }
@@ -140,6 +142,7 @@ class MemoEditViewModel(
                     _state.update { it.copy(uploading = false, attachments = it.attachments + attachment) }
                 },
                 onFailure = { t ->
+                    if (t is CancellationException) throw t
                     _state.update { it.copy(uploading = false, error = t.message) }
                 },
             )
@@ -180,6 +183,7 @@ class MemoEditViewModel(
                 }
                 _state.update { it.copy(saving = false, finished = true) }
             }.onFailure { t ->
+                if (t is CancellationException) throw t
                 _state.update { it.copy(saving = false, error = t.message) }
             }
         }
@@ -196,6 +200,7 @@ class MemoEditViewModel(
                 memoRepo.delete(name)
                 _state.update { it.copy(saving = false, finished = true) }
             }.onFailure { t ->
+                if (t is CancellationException) throw t
                 _state.update { it.copy(saving = false, error = t.message) }
             }
         }

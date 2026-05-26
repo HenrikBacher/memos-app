@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import nu.bacher.memos.MainActivity
 import nu.bacher.memos.R
@@ -47,8 +48,14 @@ class ShareReceiverActivity : ComponentActivity() {
 
         Toast.makeText(this, getString(R.string.share_saving), Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
-            val msg = runCatching { memoRepo.create(content) }
-                .fold({ R.string.share_saved }, { R.string.share_failed })
+            val msg = try {
+                memoRepo.create(content)
+                R.string.share_saved
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                R.string.share_failed
+            }
             Toast.makeText(this@ShareReceiverActivity, getString(msg), Toast.LENGTH_SHORT).show()
             finish()
         }

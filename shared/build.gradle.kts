@@ -24,7 +24,6 @@ kotlin {
 
     compilerOptions {
         freeCompilerArgs.addAll(
-            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
             "-Xannotation-default-target=param-property",
             // expect/actual classes — still beta but stable enough for app
             // code (KT-61573).

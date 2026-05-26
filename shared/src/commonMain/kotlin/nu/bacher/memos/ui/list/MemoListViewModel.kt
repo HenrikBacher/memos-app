@@ -6,6 +6,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -147,7 +148,7 @@ class MemoListViewModel(
         // Cold-start flush — if the previous session left actions queued,
         // try to push them now that we're online (or fail fast and stay
         // queued).
-        viewModelScope.launch { runCatching { memoRepo.syncPending() } }
+        viewModelScope.launch { trySyncPending() }
     }
 
     /**
@@ -155,7 +156,17 @@ class MemoListViewModel(
      * no-op when the queue is empty. Callers: MainActivity.onResume.
      */
     fun syncPending() {
-        viewModelScope.launch { runCatching { memoRepo.syncPending() } }
+        viewModelScope.launch { trySyncPending() }
+    }
+
+    private suspend fun trySyncPending() {
+        try {
+            memoRepo.syncPending()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Offline / transient — leave actions queued.
+        }
     }
 
     fun setQuery(q: String) {

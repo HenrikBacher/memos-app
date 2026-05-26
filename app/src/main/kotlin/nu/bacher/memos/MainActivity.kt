@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.ui.link.ProvideMemosUriHandler
@@ -59,7 +60,15 @@ class MainActivity : ComponentActivity() {
         // Flush the offline write queue on every resume. A no-op when the
         // queue is empty; when it's not, the user gets their pending writes
         // pushed as soon as they come back to the app from background.
-        lifecycleScope.launch { runCatching { memoRepository.syncPending() } }
+        lifecycleScope.launch {
+            try {
+                memoRepository.syncPending()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Offline / transient — actions stay queued for the next resume.
+            }
+        }
     }
 
     private fun readLaunch(intent: Intent?): NavLaunch {

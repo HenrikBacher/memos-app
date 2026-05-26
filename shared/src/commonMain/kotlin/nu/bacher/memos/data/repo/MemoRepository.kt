@@ -8,6 +8,7 @@ import androidx.paging.map
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map as mapFlow
@@ -319,6 +320,7 @@ class MemoRepository(
                 continue
             }
             val error = outcome.exceptionOrNull()!!
+            if (error is CancellationException) throw error
             if (!error.isRetriable()) {
                 // Server says no — drop and move on. The optimistic cache
                 // write stays; the next refresh will reconcile.

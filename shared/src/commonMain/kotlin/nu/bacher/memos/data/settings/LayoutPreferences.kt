@@ -29,7 +29,7 @@ class LayoutPreferences(private val settings: ObservableSettings) {
     }
 
     private fun decode(raw: String?): MemoLayout =
-        raw?.let { runCatching { MemoLayout.valueOf(it) }.getOrNull() } ?: MemoLayout.GRID
+        raw?.let { name -> MemoLayout.entries.firstOrNull { it.name == name } } ?: MemoLayout.GRID
 
     private companion object {
         const val KEY_LAYOUT = "memo_list_layout"
