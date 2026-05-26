@@ -1,5 +1,3 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kotlin.multiplatform.library)
@@ -9,14 +7,12 @@ plugins {
 }
 
 kotlin {
+    jvmToolchain(21)
+
     android {
         namespace = "nu.bacher.memos.shared"
         compileSdk = 36
         minSdk = 34
-
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_21)
-        }
 
         // Opt in to a host (unit) test compilation so the KMP-auto-created
         // commonTest source set has somewhere to attach. Without this the

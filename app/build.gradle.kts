@@ -1,5 +1,4 @@
 import com.github.triplet.gradle.androidpublisher.ReleaseStatus
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.RenderingHints
@@ -68,11 +67,6 @@ android {
         }
     }
 
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -84,9 +78,7 @@ android {
 }
 
 kotlin {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
-    }
+    jvmToolchain(21)
 }
 
 dependencies {
