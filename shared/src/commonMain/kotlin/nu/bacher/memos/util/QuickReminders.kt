@@ -46,9 +46,14 @@ object QuickReminders {
     /**
      * The next date strictly after [from] whose [DayOfWeek] is [target].
      * Returns [from] + 7 days when [from] already matches.
+     *
+     * Uses [Enum.ordinal] for the day-number math: [DayOfWeek] is declared
+     * `MONDAY..SUNDAY`, so the ordinals 0..6 already match ISO 8601 ordering
+     * (which is what we want — "next Saturday from a Wednesday" should be
+     * 3 days out, never 10).
      */
     internal fun nextDayOfWeek(from: LocalDate, target: DayOfWeek): LocalDate {
-        val diff = (target.isoDayNumber - from.dayOfWeek.isoDayNumber + 7) % 7
+        val diff = (target.ordinal - from.dayOfWeek.ordinal + 7) % 7
         return from.plus(if (diff == 0) 7 else diff, DateTimeUnit.DAY)
     }
 
