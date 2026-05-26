@@ -67,14 +67,16 @@ internal class StreamingAttachmentContent(
         // 21845 * 3. ~64 KiB of source bytes → ~85 KiB of base64 per chunk.
         const val CHUNK_BYTES: Int = 65535
 
-        val SUFFIX: ByteArray = "\"}}".encodeToByteArray()
+        val SUFFIX: ByteArray = "\"}".encodeToByteArray()
 
         // Standard padded base64: groups of 3 bytes → 4 chars, last group padded.
         fun base64EncodedLength(byteCount: Long): Long = 4L * ((byteCount + 2) / 3)
 
         fun buildPrefix(filename: String, type: String, memo: String?): ByteArray {
             val sb = StringBuilder()
-            sb.append("{\"attachment\":{\"filename\":")
+            // The HTTP binding is body:"attachment", so the body IS the Attachment
+            // object — no outer {"attachment":{...}} wrapper.
+            sb.append("{\"filename\":")
             sb.append(MemosJson.encodeToString(String.serializer(), filename))
             sb.append(",\"type\":")
             sb.append(MemosJson.encodeToString(String.serializer(), type))
