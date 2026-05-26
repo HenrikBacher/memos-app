@@ -54,7 +54,24 @@
     <string name="edit_discard_confirm_action">Discard</string>
     <string name="edit_discard_keep_editing">Keep editing</string>
 
+    <string name="list_sync_pending">Sync pending</string>
+
+    <string name="reminder_now">now</string>
+    <string name="reminder_in_minutes">in %1$d min</string>
+    <string name="reminder_minutes_ago">%1$d min ago</string>
+    <string name="reminder_in_hours">in %1$dh</string>
+    <string name="reminder_hours_ago">%1$dh ago</string>
+    <string name="reminder_today_at">today %1$s</string>
+    <string name="reminder_tomorrow_at">tomorrow %1$s</string>
+    <string name="reminder_yesterday_at">yesterday %1$s</string>
+    <string name="reminder_in_days">in %1$d days</string>
+    <string name="reminder_days_ago">%1$d days ago</string>
+
     <string name="reminder_sheet_title">Remind me…</string>
+    <string name="reminder_quick_tomorrow">Tomorrow</string>
+    <string name="reminder_quick_next_weekend">Next weekend</string>
+    <string name="reminder_quick_next_week">Next week</string>
+    <string name="reminder_or_pick_specific">Or pick a date and time</string>
     <string name="reminder_pick_date">Pick date</string>
     <string name="reminder_set">Set reminder</string>
     <string name="reminder_perm_notifications">Notifications permission is needed for reminders.</string>

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Refresh
@@ -75,6 +76,7 @@ import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.db.ReminderEntity
 import nu.bacher.memos.data.settings.MemoLayout
 import nu.bacher.memos.ui.attachments.AttachmentCardPreview
+import nu.bacher.memos.ui.reminder.reminderLabel
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -298,6 +300,7 @@ private fun MemoResultsBody(
                     content = row.memo.content,
                     attachments = row.memo.attachments,
                     reminder = row.reminder,
+                    pendingSync = row.pendingSync,
                     onClick = { onOpenMemo(row.memo.name) },
                 )
             }
@@ -320,6 +323,7 @@ private fun MemoResultsBody(
                     content = row.memo.content,
                     attachments = row.memo.attachments,
                     reminder = row.reminder,
+                    pendingSync = row.pendingSync,
                     onClick = { onOpenMemo(row.memo.name) },
                 )
             }
@@ -363,6 +367,7 @@ private fun MemoCard(
     content: String,
     attachments: List<AttachmentDto>,
     reminder: ReminderEntity?,
+    pendingSync: Boolean,
     onClick: () -> Unit,
 ) {
     Card(
@@ -370,6 +375,23 @@ private fun MemoCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            if (pendingSync) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.CloudOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        stringResource(R.string.list_sync_pending),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
             // The markdown renderer lays out blocks (headers, lists, paragraphs)
             // and ignores Text's maxLines, so we cap the rendered preview height
             // and clip the rest. The substring keeps the renderer from chewing on
@@ -413,14 +435,9 @@ private fun MemoCard(
                     )
                     Spacer(Modifier.size(4.dp))
                     val context = LocalContext.current
-                    val label = android.text.format.DateUtils.formatDateTime(
-                        context,
-                        reminder.triggerAtEpochMs,
-                        android.text.format.DateUtils.FORMAT_SHOW_DATE or
-                            android.text.format.DateUtils.FORMAT_SHOW_TIME or
-                            android.text.format.DateUtils.FORMAT_SHOW_YEAR or
-                            android.text.format.DateUtils.FORMAT_ABBREV_ALL,
-                    )
+                    val label = remember(reminder.triggerAtEpochMs) {
+                        reminderLabel(context, reminder.triggerAtEpochMs)
+                    }
                     Text(
                         label,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

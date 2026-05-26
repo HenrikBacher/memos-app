@@ -25,6 +25,7 @@ import org.koin.dsl.module
 fun commonModule(enableHttpLogging: Boolean = false) = module {
     single { get<MemosDatabase>().reminderDao() }
     single { get<MemosDatabase>().memoDao() }
+    single { get<MemosDatabase>().pendingActionDao() }
 
     singleOf(::AuthStore)
     singleOf(::LayoutPreferences)
@@ -43,6 +44,7 @@ fun commonModule(enableHttpLogging: Boolean = false) = module {
         MemoRepository(
             api = get(),
             dao = get(),
+            pendingActionDao = get(),
             verifyClientFactory = { url, token -> buildVerificationClient(engine, url, token) },
         )
     }

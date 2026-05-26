@@ -12,12 +12,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -52,6 +54,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import nu.bacher.memos.R
+import nu.bacher.memos.util.QuickReminders
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,13 +101,22 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
     var notifGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
     var exactAlarmsGranted by remember { mutableStateOf(canScheduleExactAlarms(context)) }
 
+    // Epoch the user wanted to commit when we had to detour through the
+    // notification permission prompt. Stashed so the launcher callback can
+    // finalise the *intended* time — a quick-pick chip's epoch, not whatever
+    // the manual date/time pickers currently hold.
+    var pendingEpoch by remember { mutableStateOf<Long?>(null) }
+
     val notifLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         notifGranted = granted
         if (granted) {
-            // Permission granted — finalise the reminder the user was trying to set.
-            currentlySelectedInstant(date, hour, minute)?.let(onPick)
+            val target = pendingEpoch ?: currentlySelectedInstant(date, hour, minute)
+            pendingEpoch = null
+            target?.let(onPick)
+        } else {
+            pendingEpoch = null
         }
     }
 
@@ -112,7 +124,30 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
         derivedStateOf { currentlySelectedInstant(date, hour, minute) }
     }
 
+    /**
+     * Commit [epoch] as the reminder time, routing through the notification
+     * permission prompt first when we don't have it yet. Used by both the
+     * quick-pick chips and the manual "Set reminder" button so the gating
+     * logic only lives in one place.
+     */
+    fun pick(epoch: Long) {
+        if (!notifGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pendingEpoch = epoch
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        onPick(epoch)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        QuickPickRow(onPick = ::pick)
+
+        Text(
+            stringResource(R.string.reminder_or_pick_specific),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
                 Text(date?.let { dateLabel(context, it) } ?: stringResource(R.string.reminder_pick_date))
@@ -155,16 +190,7 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
         }
 
         Button(
-            onClick = {
-                val instant = combined ?: return@Button
-                // Notification permission is the gate — without it the alarm
-                // would fire but no notification would surface.
-                if (!notifGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    return@Button
-                }
-                onPick(instant)
-            },
+            onClick = { combined?.let(::pick) },
             enabled = combined != null && combined!! > System.currentTimeMillis(),
             modifier = Modifier.fillMaxWidth(),
         ) { Text(stringResource(R.string.reminder_set)) }
@@ -193,6 +219,35 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
             },
             dismissButton = { TextButton(onClick = { showTime = false }) { Text("Cancel") } },
             text = { TimePicker(state = s) },
+        )
+    }
+}
+
+/**
+ * Quick-pick row above the manual date/time pickers. All three options land
+ * at 08:00 local — the [QuickReminders] helper has the day-of-week math.
+ * Reads the wall clock once per recomposition (`System.currentTimeMillis()`);
+ * the sheet is short-lived so we don't bother making this reactive.
+ */
+@Composable
+private fun QuickPickRow(onPick: (Long) -> Unit) {
+    val zone = remember { TimeZone.currentSystemDefault() }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        AssistChip(
+            onClick = { onPick(QuickReminders.tomorrow(System.currentTimeMillis(), zone)) },
+            label = { Text(stringResource(R.string.reminder_quick_tomorrow)) },
+        )
+        AssistChip(
+            onClick = { onPick(QuickReminders.nextWeekend(System.currentTimeMillis(), zone)) },
+            label = { Text(stringResource(R.string.reminder_quick_next_weekend)) },
+        )
+        AssistChip(
+            onClick = { onPick(QuickReminders.nextWeek(System.currentTimeMillis(), zone)) },
+            label = { Text(stringResource(R.string.reminder_quick_next_week)) },
         )
     }
 }

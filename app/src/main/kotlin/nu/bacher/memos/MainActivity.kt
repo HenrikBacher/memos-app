@@ -8,12 +8,18 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.ui.link.ProvideMemosUriHandler
 import nu.bacher.memos.ui.navigation.MemosNavHost
 import nu.bacher.memos.ui.navigation.NavLaunch
 import nu.bacher.memos.ui.theme.MemosTheme
+import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
+
+    private val memoRepository: MemoRepository by inject()
 
     /**
      * Compose state for the current intent's deep-link payload. Lifted out of
@@ -46,6 +52,14 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         val next = readLaunch(intent)
         if (next != NavLaunch.None) navLaunch = next
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Flush the offline write queue on every resume. A no-op when the
+        // queue is empty; when it's not, the user gets their pending writes
+        // pushed as soon as they come back to the app from background.
+        lifecycleScope.launch { runCatching { memoRepository.syncPending() } }
     }
 
     private fun readLaunch(intent: Intent?): NavLaunch {

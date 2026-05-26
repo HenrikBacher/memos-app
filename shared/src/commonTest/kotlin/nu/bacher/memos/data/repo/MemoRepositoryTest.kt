@@ -93,9 +93,12 @@ class MemoRepositoryTest {
     }
 
     @Test
-    fun create_rolls_back_temp_row_when_api_fails() = runTest {
+    fun create_rolls_back_temp_row_when_api_fails_with_non_retriable_error() = runTest {
+        // 400 is non-retriable (server rejected the request) — the cache
+        // should roll back and the error should propagate. Compare with
+        // create_queues_on_retriable_failure below for the 5xx path.
         val engine = MockEngine { _ ->
-            respond("nope", HttpStatusCode.InternalServerError, jsonHeaders())
+            respond("nope", HttpStatusCode.BadRequest, jsonHeaders())
         }
         val dao = FakeMemoDao().also {
             it.replaceAll(listOf(entity("memos/old", order = 0)))
@@ -111,7 +114,7 @@ class MemoRepositoryTest {
     }
 
     @Test
-    fun update_writes_to_cache_first_and_rolls_back_on_failure() = runTest {
+    fun update_writes_to_cache_first_and_rolls_back_on_non_retriable_failure() = runTest {
         val prior = entity("memos/x", order = 5).copy(content = "old", visibility = "PRIVATE")
         val dao = FakeMemoDao().also { it.replaceAll(listOf(prior)) }
 
@@ -120,7 +123,7 @@ class MemoRepositoryTest {
             // Confirms the DAO already reflects the optimistic write while the
             // API request is in flight.
             capturedDuringCall = dao.getAll().first { it.name == "memos/x" }
-            respond("nope", HttpStatusCode.InternalServerError, jsonHeaders())
+            respond("nope", HttpStatusCode.BadRequest, jsonHeaders())
         }
         val repo = repo(engine, dao)
 
@@ -142,14 +145,14 @@ class MemoRepositoryTest {
     }
 
     @Test
-    fun delete_removes_from_cache_first_and_restores_on_failure() = runTest {
+    fun delete_removes_from_cache_first_and_restores_on_non_retriable_failure() = runTest {
         val prior = entity("memos/x", order = 3)
         val dao = FakeMemoDao().also { it.replaceAll(listOf(prior)) }
 
         var observedDuringCall: List<String> = emptyList()
         val engine = MockEngine { _ ->
             observedDuringCall = dao.getAll().map { it.name }
-            respond("nope", HttpStatusCode.InternalServerError, jsonHeaders())
+            respond("nope", HttpStatusCode.BadRequest, jsonHeaders())
         }
         val repo = repo(engine, dao)
 
@@ -257,7 +260,11 @@ class MemoRepositoryTest {
 
     // --- helpers ---
 
-    private fun repo(engine: MockEngine, dao: FakeMemoDao): MemoRepository {
+    private fun repo(
+        engine: MockEngine,
+        dao: FakeMemoDao,
+        pendingDao: FakePendingActionDao = FakePendingActionDao(),
+    ): MemoRepository {
         val client = HttpClient(engine) {
             expectSuccess = true
             install(ContentNegotiation) { json(MemosJson) }
@@ -265,6 +272,7 @@ class MemoRepositoryTest {
         return MemoRepository(
             api = MemosApi(client),
             dao = dao,
+            pendingActionDao = pendingDao,
             verifyClientFactory = { _, _ -> fail("verifyCreds is not exercised here") },
         )
     }

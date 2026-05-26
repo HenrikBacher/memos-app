@@ -6,11 +6,13 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -26,15 +28,17 @@ import nu.bacher.memos.data.settings.MemoLayout
 /**
  * UI state for the list screen.
  *
- * The memo list flows through Paging3 ([memos]) — the in-memory list state
- * that used to live in [State] is gone. [State] now only carries the UI's
- * derived data: the layout, the search query, the tag chip set + selection,
- * and the per-memo reminder lookup map. Filtering happens by composing the
- * query + selectedTag with the paging flow and applying [filter] on the
- * resulting [PagingData] — so it only matches against pages already loaded.
- * This is the documented trade-off of the loaded-pages-only search model.
+ * Two paging modes:
+ *  - Empty query → DAO + RemoteMediator path (offline-first, cached).
+ *  - Non-empty query → direct-API search path (online-only, server filters).
+ *
+ * The two modes are mutually exclusive — when the user types, we swap the
+ * underlying paging stream entirely; clearing the query swaps back. The tag
+ * chip set is always derived from the cached memos so it stays meaningful
+ * regardless of which mode is active (and the selected tag is folded into
+ * the server filter when searching).
  */
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, FlowPreview::class)
 class MemoListViewModel(
     private val memoRepo: MemoRepository,
     private val reminderRepo: ReminderRepository,
@@ -43,7 +47,12 @@ class MemoListViewModel(
     private val memoDao: nu.bacher.memos.data.db.MemoDao,
 ) : ViewModel() {
 
-    data class Row(val memo: MemoDto, val reminder: ReminderEntity?)
+    data class Row(
+        val memo: MemoDto,
+        val reminder: ReminderEntity?,
+        /** True when this memo has an unsynced create/update/delete queued. */
+        val pendingSync: Boolean = false,
+    )
     data class State(
         val tags: List<String> = emptyList(),
         val query: String = "",
@@ -54,7 +63,10 @@ class MemoListViewModel(
     private val query = MutableStateFlow("")
     private val selectedTag = MutableStateFlow<String?>(null)
     private val reminderMap: Flow<Map<String, ReminderEntity>> =
-        reminderRepo.observeAll().map { list -> list.associateBy { it.memoName } }
+        reminderRepo.observeAll()
+            .map { list -> list.associateBy { it.memoName } }
+            .distinctUntilChanged()
+    private val pendingNames: Flow<Set<String>> = memoRepo.pendingNames
 
     /**
      * Tag set is derived from the *cached* memos (whatever pages are in the
@@ -74,7 +86,7 @@ class MemoListViewModel(
             .distinct()
             .sortedBy { it.lowercase() }
             .toList()
-    }
+    }.distinctUntilChanged()
 
     val state: kotlinx.coroutines.flow.StateFlow<State> = combine(
         query,
@@ -95,21 +107,56 @@ class MemoListViewModel(
     )
 
     /**
-     * Paged memos for the screen. Combines the raw paging stream with the
-     * query, selected tag, and reminder map so each emission carries the
-     * up-to-date filtering + reminder badges. cachedIn allows the screen to
-     * survive config changes without re-fetching.
+     * Debounced query for the paging stream. Empty queries propagate
+     * immediately (clearing search shouldn't lag); non-empty queries wait
+     * [SEARCH_DEBOUNCE_MS] so we don't fire a request on every keystroke.
+     */
+    private val debouncedQuery: Flow<String> = query
+        .debounce { q -> if (q.isBlank()) 0L else SEARCH_DEBOUNCE_MS }
+        .distinctUntilChanged()
+
+    /**
+     * Paged memos for the screen. Combines the (debounced) query, selected
+     * tag, reminder map, and pending-sync set; rebuilds the paging stream
+     * whenever the query mode flips. cachedIn lets the screen survive config
+     * changes.
      */
     val memos: Flow<PagingData<Row>> =
-        combine(query, selectedTag, reminderMap) { q, tag, reminders ->
-            Triple(q, tag, reminders)
-        }.flatMapLatest { (q, tag, reminders) ->
-            memoRepo.memosPagingData.map { paging ->
-                paging
-                    .filter { memo -> matchesFilters(memo, q, tag) }
-                    .map { memo -> Row(memo, reminders[memo.name]) }
+        combine(debouncedQuery, selectedTag, reminderMap, pendingNames) { q, tag, reminders, pending ->
+            Quad(q, tag, reminders, pending)
+        }.flatMapLatest { (q, tag, reminders, pending) ->
+            val source: Flow<PagingData<MemoDto>> = if (q.isBlank()) {
+                // Cached path — server doesn't know about [tag], so apply it
+                // client-side over loaded pages.
+                memoRepo.memosPagingData.map { paging ->
+                    paging.filter { memo -> tagMatches(memo, tag) }
+                }
+            } else {
+                // Server-side search. Tag is sent in the filter so the
+                // server narrows results before paging.
+                memoRepo.searchMemosPagingData(q, tag)
+            }
+            source.map { paging ->
+                paging.map { memo ->
+                    Row(memo, reminders[memo.name], pendingSync = memo.name in pending)
+                }
             }
         }.cachedIn(viewModelScope)
+
+    init {
+        // Cold-start flush — if the previous session left actions queued,
+        // try to push them now that we're online (or fail fast and stay
+        // queued).
+        viewModelScope.launch { runCatching { memoRepo.syncPending() } }
+    }
+
+    /**
+     * Trigger a flush of the offline queue. Safe to call repeatedly — a
+     * no-op when the queue is empty. Callers: MainActivity.onResume.
+     */
+    fun syncPending() {
+        viewModelScope.launch { runCatching { memoRepo.syncPending() } }
+    }
 
     fun setQuery(q: String) {
         query.value = q
@@ -130,14 +177,18 @@ class MemoListViewModel(
         authStore.clear()
     }
 
-    private fun matchesFilters(memo: MemoDto, q: String, tag: String?): Boolean {
-        if (tag != null) {
-            val tags = if (memo.tags.isNotEmpty()) memo.tags else extractTags(memo.content)
-            if (tag !in tags) return false
-        }
-        if (q.isNotBlank() && !memo.content.contains(q, ignoreCase = true)) return false
-        return true
+    private fun tagMatches(memo: MemoDto, tag: String?): Boolean {
+        if (tag == null) return true
+        val tags = if (memo.tags.isNotEmpty()) memo.tags else extractTags(memo.content)
+        return tag in tags
     }
+
+    private companion object {
+        const val SEARCH_DEBOUNCE_MS = 300L
+    }
+
+    /** Local 4-tuple — Kotlin has no built-in Quadruple. */
+    private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 }
 
 private val TAG_REGEX = Regex("""(?<![\w/])#([\p{L}\p{N}_\-/]+)""")

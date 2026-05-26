@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 import nu.bacher.memos.R
 import nu.bacher.memos.ui.attachments.AttachmentList
 import nu.bacher.memos.ui.reminder.ReminderPickerSheet
+import nu.bacher.memos.ui.reminder.reminderLabel
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -387,17 +388,10 @@ private fun EditActionsRow(
             )
         } else {
             val context = LocalContext.current
-            val label = stringResource(
-                R.string.edit_reminder_at,
-                android.text.format.DateUtils.formatDateTime(
-                    context,
-                    r.triggerAtEpochMs,
-                    android.text.format.DateUtils.FORMAT_SHOW_DATE or
-                        android.text.format.DateUtils.FORMAT_SHOW_TIME or
-                        android.text.format.DateUtils.FORMAT_SHOW_YEAR or
-                        android.text.format.DateUtils.FORMAT_ABBREV_ALL,
-                ),
-            )
+            val relativeLabel = remember(r.triggerAtEpochMs) {
+                reminderLabel(context, r.triggerAtEpochMs)
+            }
+            val label = stringResource(R.string.edit_reminder_at, relativeLabel)
             AssistChip(
                 onClick = onOpenReminderSheet,
                 leadingIcon = {
