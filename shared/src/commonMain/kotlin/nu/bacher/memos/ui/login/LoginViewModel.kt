@@ -29,8 +29,16 @@ class LoginViewModel(
 
     fun submit(onSuccess: () -> Unit) {
         val current = _state.value
-        val url = current.serverUrl.trim().trimEnd('/')
+        val rawUrl = current.serverUrl.trim().trimEnd('/')
         val token = current.token.trim()
+
+        // URL schemes are case-insensitive (RFC 3986). Normalize the scheme
+        // before the check so "HTTPS://…" isn't wrongly rejected.
+        val url = if (rawUrl.startsWith("https://", ignoreCase = true)) {
+            "https://" + rawUrl.substring("https://".length)
+        } else {
+            rawUrl
+        }
 
         if (!url.startsWith("https://")) {
             _state.update { it.copy(error = "URL must start with https:// — plain http is not supported") }
