@@ -91,6 +91,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun MemoListScreen(
     onOpenMemo: (String) -> Unit,
+    onEditMemo: (String) -> Unit,
     onCreateMemo: () -> Unit,
     onLogout: () -> Unit,
     vm: MemoListViewModel = koinViewModel(),
@@ -113,9 +114,10 @@ fun MemoListScreen(
                 selectedMemoName != null -> SelectionTopBar(
                     onClear = { vm.clearSelection() },
                     onEdit = {
-                        val name = selectedMemoName ?: return@SelectionTopBar
-                        vm.clearSelection()
-                        onOpenMemo(name)
+                        selectedMemoName?.let { name ->
+                            onEditMemo(name)
+                            vm.clearSelection()
+                        }
                     },
                     onDelete = { showDeleteConfirm = true },
                 )

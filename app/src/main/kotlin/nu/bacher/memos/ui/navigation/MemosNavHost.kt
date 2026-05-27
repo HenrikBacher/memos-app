@@ -33,6 +33,7 @@ sealed interface NavLaunch {
 @Serializable private data class MemoEdit(
     val name: String? = null,
     val initial: String? = null,
+    val startInEditMode: Boolean = false,
 )
 
 @Composable
@@ -78,6 +79,9 @@ fun MemosNavHost(
         composable<MemoList> {
             MemoListScreen(
                 onOpenMemo = { name -> navController.navigate(MemoEdit(name = name)) },
+                onEditMemo = { name ->
+                    navController.navigate(MemoEdit(name = name, startInEditMode = true))
+                },
                 onCreateMemo = { navController.navigate(MemoEdit()) },
                 onLogout = {
                     navController.navigate(Login) {
@@ -92,6 +96,7 @@ fun MemosNavHost(
             MemoEditScreen(
                 memoName = args.name,
                 initialContent = args.initial,
+                startInEditMode = args.startInEditMode,
                 onBack = { navController.popBackStack() },
             )
         }

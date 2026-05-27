@@ -78,6 +78,7 @@ fun MemoEditScreen(
     memoName: String?,
     onBack: () -> Unit,
     initialContent: String? = null,
+    startInEditMode: Boolean = false,
     vm: MemoEditViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsState()
@@ -106,7 +107,9 @@ fun MemoEditScreen(
         }
     }
 
-    LaunchedEffect(memoName, initialContent) { vm.load(memoName, initialContent) }
+    LaunchedEffect(memoName, initialContent, startInEditMode) {
+        vm.load(memoName, initialContent, startInEditMode)
+    }
     LaunchedEffect(state.finished) { if (state.finished) onBack() }
     LaunchedEffect(state.error) {
         state.error?.let { snackbarHostState.showSnackbar(it) }

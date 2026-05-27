@@ -58,7 +58,7 @@ class MemoEditViewModel(
     private val _state = MutableStateFlow(State())
     val state = _state.asStateFlow()
 
-    fun load(memoName: String?, initialContent: String? = null) {
+    fun load(memoName: String?, initialContent: String? = null, startInEditMode: Boolean = false) {
         viewModelScope.launch {
             if (memoName == null) {
                 val content = initialContent.orEmpty()
@@ -86,7 +86,7 @@ class MemoEditViewModel(
                     attachments = memo.attachments,
                     reminder = rem,
                     loading = false,
-                    isEditing = false,
+                    isEditing = startInEditMode,
                     original = Snapshot(
                         content = memo.content,
                         visibility = visibility,
