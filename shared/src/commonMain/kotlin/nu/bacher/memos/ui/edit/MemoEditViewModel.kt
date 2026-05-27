@@ -33,6 +33,8 @@ class MemoEditViewModel(
         val uploading: Boolean = false,
         val error: String? = null,
         val finished: Boolean = false,
+        /** True when [finished] was set by a successful save (so the UI can show a "Saved" confirmation). False after delete or empty-new-memo dismissal. */
+        val savedSuccess: Boolean = false,
         /** False renders content as markdown (links clickable); true opens the editor. */
         val isEditing: Boolean = false,
         /**
@@ -181,7 +183,7 @@ class MemoEditViewModel(
                 if (s.memoName == null && s.reminder != null) {
                     reminderRepo.setTimeReminder(saved.name, s.reminder.triggerAtEpochMs)
                 }
-                _state.update { it.copy(saving = false, finished = true) }
+                _state.update { it.copy(saving = false, finished = true, savedSuccess = true) }
             }.onFailure { t ->
                 if (t is CancellationException) throw t
                 _state.update { it.copy(saving = false, error = t.message) }

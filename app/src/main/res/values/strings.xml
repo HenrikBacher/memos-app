@@ -1,16 +1,24 @@
 <resources>
     <string name="app_name">Memos</string>
 
-    <string name="login_title">Connect to memos</string>
+    <string name="login_title">Connect to Memos</string>
     <string name="login_server_url">Server URL</string>
     <string name="login_server_hint">https://memos.example.com</string>
     <string name="login_token">Access token</string>
     <string name="login_token_hint">From Settings → My Account</string>
     <string name="login_connect">Connect</string>
+    <string name="login_show_token">Show token</string>
+    <string name="login_hide_token">Hide token</string>
 
     <string name="list_title">Memos</string>
     <string name="list_empty">No memos yet. Tap + to create one.</string>
     <string name="list_empty_filtered">No memos match your filter.</string>
+    <string name="list_clear_filter">Clear filter</string>
+    <string name="list_error_network">Can\'t reach your server. Check your connection and try again.</string>
+    <string name="list_error_auth">Your session expired. Sign in again.</string>
+    <string name="list_error_generic">Something went wrong loading memos.</string>
+    <string name="list_retry">Retry</string>
+    <string name="list_more_options">More options</string>
     <string name="list_fab_new">New memo</string>
     <string name="list_logout">Log out</string>
     <string name="list_refresh">Refresh</string>
@@ -63,6 +71,8 @@
     <string name="edit_discard_confirm_message">You have unsaved changes. Leave without saving?</string>
     <string name="edit_discard_confirm_action">Discard</string>
     <string name="edit_discard_keep_editing">Keep editing</string>
+    <string name="edit_saved">Saved</string>
+    <string name="edit_more_options">More options</string>
 
     <string name="list_sync_pending">Sync pending</string>
 
@@ -78,12 +88,14 @@
     <string name="reminder_days_ago">%1$d days ago</string>
 
     <string name="reminder_sheet_title">Remind me…</string>
-    <string name="reminder_quick_tomorrow">Tomorrow</string>
-    <string name="reminder_quick_next_weekend">Next weekend</string>
-    <string name="reminder_quick_next_week">Next week</string>
+    <string name="reminder_sheet_title_edit">Edit reminder</string>
+    <string name="reminder_quick_tomorrow">Tomorrow %1$s</string>
+    <string name="reminder_quick_next_weekend">Next weekend %1$s</string>
+    <string name="reminder_quick_next_week">Next week %1$s</string>
     <string name="reminder_or_pick_specific">Or pick a date and time</string>
     <string name="reminder_pick_date">Pick date</string>
     <string name="reminder_set">Set reminder</string>
+    <string name="reminder_set_for">Set reminder for %1$s</string>
     <string name="reminder_perm_notifications">Notifications permission is needed for reminders.</string>
     <string name="reminder_perm_exact_alarm">Allow exact alarms so reminders fire at the time you set.</string>
     <string name="reminder_perm_grant">Grant</string>

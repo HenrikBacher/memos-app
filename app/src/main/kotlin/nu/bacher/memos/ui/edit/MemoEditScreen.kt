@@ -2,6 +2,7 @@ package nu.bacher.memos.ui.edit
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
@@ -92,6 +94,7 @@ fun MemoEditScreen(
     var showReminderSheet by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
+    var moreMenuOpen by remember { mutableStateOf(false) }
 
     // Read dirty off the collected state so BackHandler.enabled stays in
     // sync, and so the system handles predictive back when there's nothing
@@ -122,7 +125,19 @@ fun MemoEditScreen(
     LaunchedEffect(memoName, initialContent, startInEditMode) {
         vm.load(memoName, initialContent, startInEditMode)
     }
-    LaunchedEffect(state.finished) { if (state.finished) onBack() }
+    LaunchedEffect(state.finished) {
+        if (state.finished) {
+            // Toast (not Snackbar) so the confirmation survives the screen pop.
+            if (state.savedSuccess) {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.edit_saved),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+            onBack()
+        }
+    }
     LaunchedEffect(state.error) {
         state.error?.let { snackbarHostState.showSnackbar(it) }
     }
@@ -155,14 +170,18 @@ fun MemoEditScreen(
                     }
                 },
                 actions = {
-                    // Save is always available — for new memos and existing
-                    // ones alike. The VM's save() is a no-op on an empty new
-                    // memo (just finishes), so the button is safe to tap any
-                    // time the screen has loaded.
-                    IconButton(
-                        onClick = { vm.save() },
-                        enabled = !state.saving && !state.loading,
-                    ) {
+                    // Save only enabled when there's something to save:
+                    //   - existing memo: dirty
+                    //   - new memo: has content or attachments
+                    // The VM's no-op-on-empty-new-memo path still applies if
+                    // somehow tapped, but the disabled state avoids the
+                    // "Save → silent pop" UX trap.
+                    val canSave = !state.saving && !state.loading && when {
+                        state.memoName == null -> state.content.isNotBlank() ||
+                            state.attachments.isNotEmpty()
+                        else -> isDirty
+                    }
+                    IconButton(onClick = { vm.save() }, enabled = canSave) {
                         Icon(
                             Icons.Filled.Check,
                             contentDescription = stringResource(R.string.edit_save),
@@ -182,26 +201,55 @@ fun MemoEditScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = {
-                            val url = vm.shareUrl() ?: return@IconButton
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, url)
+                        Box {
+                            IconButton(onClick = { moreMenuOpen = true }) {
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = stringResource(R.string.edit_more_options),
+                                )
                             }
-                            context.startActivity(
-                                Intent.createChooser(
-                                    send,
-                                    context.getString(R.string.edit_share_chooser),
-                                ),
-                            )
-                        }) {
-                            Icon(Icons.Filled.Share, contentDescription = stringResource(R.string.edit_share))
-                        }
-                        IconButton(onClick = { showDeleteConfirm = true }) {
-                            Icon(
-                                Icons.Filled.Delete,
-                                contentDescription = stringResource(R.string.edit_delete),
-                            )
+                            DropdownMenu(
+                                expanded = moreMenuOpen,
+                                onDismissRequest = { moreMenuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.edit_share)) },
+                                    leadingIcon = { Icon(Icons.Filled.Share, null) },
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        val url = vm.shareUrl() ?: return@DropdownMenuItem
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, url)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(
+                                                send,
+                                                context.getString(R.string.edit_share_chooser),
+                                            ),
+                                        )
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            stringResource(R.string.edit_delete),
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.Delete,
+                                            null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        moreMenuOpen = false
+                                        showDeleteConfirm = true
+                                    },
+                                )
+                            }
                         }
                     }
                 },

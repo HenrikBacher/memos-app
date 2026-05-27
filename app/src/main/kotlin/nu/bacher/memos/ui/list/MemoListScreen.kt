@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
@@ -32,10 +31,11 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -46,14 +46,18 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -63,11 +67,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -147,15 +156,12 @@ fun MemoListScreen(
                             )
                         }
                         LayoutToggleButton(state.layout, vm::setLayout)
-                        IconButton(onClick = { pagingItems.refresh() }) {
-                            Icon(
-                                Icons.Filled.Refresh,
-                                contentDescription = stringResource(R.string.list_refresh),
-                            )
-                        }
                         Box {
                             IconButton(onClick = { menuOpen = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = stringResource(R.string.list_more_options),
+                                )
                             }
                             DropdownMenu(
                                 expanded = menuOpen,
@@ -215,6 +221,11 @@ fun MemoListScreen(
                         else onOpenMemo(name)
                     },
                     onLongPressMemo = vm::toggleSelection,
+                    onClearFilter = {
+                        vm.setQuery("")
+                        vm.setSelectedTag(null)
+                        searchOpen = false
+                    },
                 )
             }
         }
@@ -358,21 +369,27 @@ private fun SearchTopBar(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LayoutToggleButton(layout: MemoLayout, onToggle: (MemoLayout) -> Unit) {
-    IconButton(onClick = {
-        onToggle(if (layout == MemoLayout.GRID) MemoLayout.LIST else MemoLayout.GRID)
-    }) {
-        // Show the icon for the OTHER mode — tapping switches to it.
-        if (layout == MemoLayout.GRID) {
+    // Show the icon for the OTHER mode — tapping switches to it. The tooltip
+    // spells out the action ("Switch to list view") so users don't have to
+    // guess what the icon means.
+    val label = stringResource(
+        if (layout == MemoLayout.GRID) R.string.list_view_list else R.string.list_view_grid,
+    )
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = rememberTooltipState(),
+    ) {
+        IconButton(onClick = {
+            onToggle(if (layout == MemoLayout.GRID) MemoLayout.LIST else MemoLayout.GRID)
+        }) {
             Icon(
-                Icons.AutoMirrored.Filled.ViewList,
-                contentDescription = stringResource(R.string.list_view_list),
-            )
-        } else {
-            Icon(
-                Icons.Filled.GridView,
-                contentDescription = stringResource(R.string.list_view_grid),
+                imageVector = if (layout == MemoLayout.GRID) Icons.AutoMirrored.Filled.ViewList
+                else Icons.Filled.GridView,
+                contentDescription = label,
             )
         }
     }
@@ -387,21 +404,34 @@ private fun MemoResultsBody(
     selectedNames: Set<String>,
     onOpenMemo: (String) -> Unit,
     onLongPressMemo: (String) -> Unit,
+    onClearFilter: () -> Unit,
 ) {
     val refresh = pagingItems.loadState.refresh
     val isInitialLoading = refresh is LoadState.Loading && pagingItems.itemCount == 0
     val errorState = refresh as? LoadState.Error
 
     if (pagingItems.itemCount == 0 && !isInitialLoading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            val msg = when {
-                errorState != null -> errorState.error.message
-                    ?: stringResource(R.string.list_empty)
-                query.isNotBlank() || selectedTag != null ->
-                    stringResource(R.string.list_empty_filtered)
-                else -> stringResource(R.string.list_empty)
+        val isFiltered = query.isNotBlank() || selectedTag != null
+        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val msg = when {
+                    errorState != null -> stringResource(friendlyErrorMessage(errorState.error))
+                    isFiltered -> stringResource(R.string.list_empty_filtered)
+                    else -> stringResource(R.string.list_empty)
+                }
+                Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                when {
+                    errorState != null -> Button(onClick = { pagingItems.retry() }) {
+                        Text(stringResource(R.string.list_retry))
+                    }
+                    isFiltered -> TextButton(onClick = onClearFilter) {
+                        Text(stringResource(R.string.list_clear_filter))
+                    }
+                }
             }
-            Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
@@ -503,14 +533,17 @@ private fun MemoCard(
 ) {
     // Card has no combined-click overload, so attach combinedClickable on the
     // Modifier and use the non-clickable Card constructor.
+    // Cache the card background once for the fade gradient — it has to match
+    // the surface behind the markdown so the fade looks like the content
+    // dissolves into the card, not into a different colour stripe.
+    val cardBg = if (selected) MaterialTheme.colorScheme.secondaryContainer
+    else CardDefaults.cardColors().containerColor
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         colors = if (selected) {
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            )
+            CardDefaults.cardColors(containerColor = cardBg)
         } else {
             CardDefaults.cardColors()
         },
@@ -537,29 +570,53 @@ private fun MemoCard(
             // and ignores Text's maxLines, so we cap the rendered preview height
             // and clip the rest. The substring keeps the renderer from chewing on
             // an entire long memo just to throw it away.
+            var overflowing by remember(content) { mutableStateOf(false) }
+            val maxHeightPx = with(LocalDensity.current) { 280.dp.toPx() }
             Box(
                 modifier = Modifier
                     .heightIn(max = 280.dp)
-                    .clipToBounds(),
+                    .clipToBounds()
+                    .drawWithContent {
+                        drawContent()
+                        if (overflowing) {
+                            // Fade the bottom ~30% so users see content is cut.
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    0.7f to Color.Transparent,
+                                    1f to cardBg,
+                                ),
+                            )
+                        }
+                    },
             ) {
-                Markdown(
-                    content = content.take(800),
-                    typography = markdownTypography(
-                        text = MaterialTheme.typography.bodyMedium,
-                        paragraph = MaterialTheme.typography.bodyMedium,
-                        h1 = MaterialTheme.typography.titleMedium,
-                        h2 = MaterialTheme.typography.titleSmall,
-                        h3 = MaterialTheme.typography.titleSmall,
-                        h4 = MaterialTheme.typography.bodyMedium,
-                        h5 = MaterialTheme.typography.bodyMedium,
-                        h6 = MaterialTheme.typography.bodyMedium,
-                        ordered = MaterialTheme.typography.bodyMedium,
-                        bullet = MaterialTheme.typography.bodyMedium,
-                        list = MaterialTheme.typography.bodyMedium,
-                        quote = MaterialTheme.typography.bodyMedium,
-                    ),
-                    modifier = Modifier,
-                )
+                // wrapContentSize(unbounded=true) lifts the parent's max-height
+                // constraint when measuring Markdown, so onSizeChanged reports
+                // the markdown's natural height — what we need to detect that
+                // the 280.dp cap is actually clipping something.
+                Box(
+                    modifier = Modifier
+                        .wrapContentSize(align = Alignment.TopStart, unbounded = true)
+                        .onSizeChanged { overflowing = it.height > maxHeightPx },
+                ) {
+                    Markdown(
+                        content = content.take(800),
+                        typography = markdownTypography(
+                            text = MaterialTheme.typography.bodyMedium,
+                            paragraph = MaterialTheme.typography.bodyMedium,
+                            h1 = MaterialTheme.typography.titleMedium,
+                            h2 = MaterialTheme.typography.titleSmall,
+                            h3 = MaterialTheme.typography.titleSmall,
+                            h4 = MaterialTheme.typography.bodyMedium,
+                            h5 = MaterialTheme.typography.bodyMedium,
+                            h6 = MaterialTheme.typography.bodyMedium,
+                            ordered = MaterialTheme.typography.bodyMedium,
+                            bullet = MaterialTheme.typography.bodyMedium,
+                            list = MaterialTheme.typography.bodyMedium,
+                            quote = MaterialTheme.typography.bodyMedium,
+                        ),
+                        modifier = Modifier,
+                    )
+                }
             }
             if (attachments.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
@@ -588,4 +645,32 @@ private fun MemoCard(
             }
         }
     }
+}
+
+/**
+ * Maps a paging error to a user-facing string resource. We hide the raw
+ * exception message (often a Ktor/JVM stack-trace flavored string) and bucket
+ * by whether the failure is network, auth, or anything else.
+ */
+private fun friendlyErrorMessage(t: Throwable): Int {
+    var current: Throwable? = t
+    while (current != null) {
+        val name = current::class.qualifiedName.orEmpty()
+        when {
+            name.endsWith("UnknownHostException") ||
+                name.endsWith("UnresolvedAddressException") ||
+                name.endsWith("ConnectException") ||
+                name.endsWith("SocketTimeoutException") ||
+                name.endsWith("HttpRequestTimeoutException") ||
+                name.endsWith("IOException") -> return R.string.list_error_network
+            name.endsWith("ClientRequestException") -> {
+                val msg = current.message.orEmpty()
+                if (msg.contains("401") || msg.contains("403")) {
+                    return R.string.list_error_auth
+                }
+            }
+        }
+        current = current.cause
+    }
+    return R.string.list_error_generic
 }

@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -70,7 +73,10 @@ fun ReminderPickerSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.padding(16.dp)) {
             Text(
-                stringResource(R.string.reminder_sheet_title),
+                stringResource(
+                    if (existingEpochMs != null) R.string.reminder_sheet_title_edit
+                    else R.string.reminder_sheet_title,
+                ),
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(16.dp))
@@ -193,7 +199,14 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
             onClick = { combined?.let(::pick) },
             enabled = combined != null && combined!! > System.currentTimeMillis(),
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(R.string.reminder_set)) }
+        ) {
+            // Once both date and time are picked, show what we'll schedule —
+            // saves the user from squinting at the two pickers above to verify.
+            val label = combined?.let { ms ->
+                stringResource(R.string.reminder_set_for, dateTimeLabel(context, ms))
+            } ?: stringResource(R.string.reminder_set)
+            Text(label)
+        }
     }
 
     if (showDate) {
@@ -201,9 +214,15 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
         DatePickerDialog(
             onDismissRequest = { showDate = false },
             confirmButton = {
-                TextButton(onClick = { date = s.selectedDateMillis; showDate = false }) { Text("OK") }
+                TextButton(onClick = { date = s.selectedDateMillis; showDate = false }) {
+                    Text(stringResource(android.R.string.ok))
+                }
             },
-            dismissButton = { TextButton(onClick = { showDate = false }) { Text("Cancel") } },
+            dismissButton = {
+                TextButton(onClick = { showDate = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
         ) { DatePicker(state = s) }
     }
     if (showTime) {
@@ -215,9 +234,15 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
                 exactAlarmsGranted = canScheduleExactAlarms(context)
             },
             confirmButton = {
-                TextButton(onClick = { hour = s.hour; minute = s.minute; showTime = false }) { Text("OK") }
+                TextButton(onClick = { hour = s.hour; minute = s.minute; showTime = false }) {
+                    Text(stringResource(android.R.string.ok))
+                }
             },
-            dismissButton = { TextButton(onClick = { showTime = false }) { Text("Cancel") } },
+            dismissButton = {
+                TextButton(onClick = { showTime = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
             text = { TimePicker(state = s) },
         )
     }
@@ -228,42 +253,69 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
  * at 08:00 local — the [QuickReminders] helper has the day-of-week math.
  * Reads the wall clock once per recomposition (`System.currentTimeMillis()`);
  * the sheet is short-lived so we don't bother making this reactive.
+ *
+ * Each chip's label includes the resolved time-of-day so users can see what
+ * "Tomorrow" actually means before tapping. The time renders via the
+ * platform formatter, so a 12/24-hour locale preference is respected.
  */
 @Composable
 private fun QuickPickRow(onPick: (Long) -> Unit) {
+    val context = LocalContext.current
     val zone = remember { TimeZone.currentSystemDefault() }
+    val now = System.currentTimeMillis()
+    val tomorrowAt = remember(now) { QuickReminders.tomorrow(now, zone) }
+    val nextWeekendAt = remember(now) { QuickReminders.nextWeekend(now, zone) }
+    val nextWeekAt = remember(now) { QuickReminders.nextWeek(now, zone) }
+    val timeLabel: (Long) -> String = { ms ->
+        android.text.format.DateUtils.formatDateTime(
+            context, ms, android.text.format.DateUtils.FORMAT_SHOW_TIME,
+        )
+    }
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         AssistChip(
-            onClick = { onPick(QuickReminders.tomorrow(System.currentTimeMillis(), zone)) },
-            label = { Text(stringResource(R.string.reminder_quick_tomorrow)) },
+            onClick = { onPick(tomorrowAt) },
+            label = {
+                Text(stringResource(R.string.reminder_quick_tomorrow, timeLabel(tomorrowAt)))
+            },
         )
         AssistChip(
-            onClick = { onPick(QuickReminders.nextWeekend(System.currentTimeMillis(), zone)) },
-            label = { Text(stringResource(R.string.reminder_quick_next_weekend)) },
+            onClick = { onPick(nextWeekendAt) },
+            label = {
+                Text(stringResource(R.string.reminder_quick_next_weekend, timeLabel(nextWeekendAt)))
+            },
         )
         AssistChip(
-            onClick = { onPick(QuickReminders.nextWeek(System.currentTimeMillis(), zone)) },
-            label = { Text(stringResource(R.string.reminder_quick_next_week)) },
+            onClick = { onPick(nextWeekAt) },
+            label = {
+                Text(stringResource(R.string.reminder_quick_next_week, timeLabel(nextWeekAt)))
+            },
         )
     }
 }
 
 @Composable
 private fun PermissionRow(message: String, action: () -> Unit) {
+    // These are setup prompts ("notifications permission needed"), not error
+    // states — render on a tonal surface in surfaceVariant tones so the sheet
+    // doesn't look broken on first open.
     Row(
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
             message,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TextButton(onClick = action) { Text(stringResource(R.string.reminder_perm_grant)) }
     }
@@ -312,5 +364,14 @@ private fun dateLabel(context: Context, millis: Long): String =
         millis,
         android.text.format.DateUtils.FORMAT_SHOW_DATE or
             android.text.format.DateUtils.FORMAT_SHOW_YEAR or
+            android.text.format.DateUtils.FORMAT_ABBREV_MONTH,
+    )
+
+private fun dateTimeLabel(context: Context, millis: Long): String =
+    android.text.format.DateUtils.formatDateTime(
+        context,
+        millis,
+        android.text.format.DateUtils.FORMAT_SHOW_DATE or
+            android.text.format.DateUtils.FORMAT_SHOW_TIME or
             android.text.format.DateUtils.FORMAT_ABBREV_MONTH,
     )
