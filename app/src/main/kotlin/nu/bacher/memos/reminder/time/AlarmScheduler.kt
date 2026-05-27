@@ -69,6 +69,7 @@ class AlarmScheduler(private val context: Context) : ReminderScheduler {
 
     companion object {
         const val ACTION_FIRE = "nu.bacher.memos.action.FIRE_TIME_REMINDER"
+        const val ACTION_SNOOZE = "nu.bacher.memos.action.SNOOZE_REMINDER"
         const val EXTRA_MEMO_NAME = "memo_name"
         private const val TAG = "AlarmScheduler"
     }

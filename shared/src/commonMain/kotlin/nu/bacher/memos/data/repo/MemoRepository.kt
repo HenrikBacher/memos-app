@@ -191,19 +191,21 @@ class MemoRepository(
      */
     suspend fun update(
         name: String,
-        content: String,
+        content: String? = null,
         visibility: String? = null,
+        state: String? = null,
         attachments: List<AttachmentDto>? = null,
     ): MemoDto {
         if (name.startsWith(TEMP_NAME_PREFIX)) {
-            return mergeIntoPendingCreate(name, content, visibility, attachments)
+            return mergeIntoPendingCreate(name, content, visibility, state, attachments)
         }
         val prior = dao.get(name)
             ?: error("update($name): no cached entity to update")
         val now = currentTimeMillis()
         val optimistic = prior.copy(
-            content = content,
+            content = content ?: prior.content,
             visibility = visibility ?: prior.visibility,
+            state = state ?: prior.state,
             attachmentsJson = attachments?.let { encodeAttachments(it) } ?: prior.attachmentsJson,
             cachedAtEpochMs = now,
         )
@@ -214,6 +216,7 @@ class MemoRepository(
                 UpdateMemoRequest(
                     content = content,
                     visibility = visibility,
+                    state = state,
                     attachments = attachments?.map { AttachmentRef(name = it.name) },
                 ),
             )
@@ -224,7 +227,7 @@ class MemoRepository(
         } catch (t: Throwable) {
             if (t.isRetriable()) {
                 withContext(NonCancellable) {
-                    enqueuePendingUpdate(name, content, visibility, attachments)
+                    enqueuePendingUpdate(name, content, visibility, state, attachments)
                 }
                 optimistic.toDto()
             } else {
@@ -233,6 +236,13 @@ class MemoRepository(
             }
         }
     }
+
+    /**
+     * Convenience wrapper for state-only edits. Archiving a temp-named memo
+     * isn't supported (the memo doesn't exist on the server yet) — callers
+     * should filter those out at the UI layer.
+     */
+    suspend fun setState(name: String, state: String): MemoDto = update(name = name, state = state)
 
     /**
      * Uploads [bytes] as an attachment. When [memoName] is non-null the server
@@ -369,6 +379,7 @@ class MemoRepository(
                     UpdateMemoRequest(
                         content = payload.content,
                         visibility = payload.visibility,
+                        state = payload.state,
                         attachments = payload.attachmentNames?.map { AttachmentRef(name = it) },
                     ),
                 )
@@ -409,19 +420,25 @@ class MemoRepository(
 
     private suspend fun enqueuePendingUpdate(
         name: String,
-        content: String,
+        content: String?,
         visibility: String?,
+        state: String?,
         attachments: List<AttachmentDto>?,
     ) {
-        // Collapse repeated UPDATEs on the same memo: only the latest payload
-        // is worth replaying. Drop prior UPDATEs to keep the queue compact.
-        pendingActionDao.findFirst(PendingActionType.UPDATE.storedValue, name)?.let {
-            pendingActionDao.deleteById(it.id)
-        }
+        // Collapse repeated UPDATEs on the same memo: merge the prior queued
+        // payload with the new one so partial edits don't get lost (e.g. a
+        // queued content-only edit followed by a state-only archive should
+        // replay as a single UPDATE that carries both).
+        val prior = pendingActionDao.findFirst(PendingActionType.UPDATE.storedValue, name)
+            ?.let { row ->
+                MemosJson.decodeFromString(PendingPayload.Update.serializer(), row.payloadJson)
+                    .also { pendingActionDao.deleteById(row.id) }
+            }
         val payload = PendingPayload.Update(
-            content = content,
-            visibility = visibility,
-            attachmentNames = attachments?.map { it.name },
+            content = content ?: prior?.content,
+            visibility = visibility ?: prior?.visibility,
+            state = state ?: prior?.state,
+            attachmentNames = attachments?.map { it.name } ?: prior?.attachmentNames,
         )
         pendingActionDao.insert(
             PendingActionEntity(
@@ -437,6 +454,12 @@ class MemoRepository(
     }
 
     private suspend fun enqueuePendingDelete(name: String) {
+        // A queued UPDATE would replay after the DELETE and 404 — drop any
+        // prior pending action for this memo so the DELETE stands alone.
+        // (A CREATE here would mean a temp-named memo, which delete() already
+        // short-circuits before reaching this path, but the broad sweep is
+        // still cheap insurance against future paths that don't.)
+        pendingActionDao.deleteByMemoName(name)
         pendingActionDao.insert(
             PendingActionEntity(
                 type = PendingActionType.DELETE.storedValue,
@@ -454,13 +477,16 @@ class MemoRepository(
      */
     private suspend fun mergeIntoPendingCreate(
         tempName: String,
-        content: String,
+        content: String?,
         visibility: String?,
+        state: String?,
         attachments: List<AttachmentDto>?,
     ): MemoDto {
         val prior = dao.get(tempName)
             ?: error("update($tempName): no cached temp entity to merge into")
+        val newContent = content ?: prior.content
         val newVisibility = visibility ?: prior.visibility
+        val newState = state ?: prior.state
         val priorAttachments = if (prior.attachmentsJson.isEmpty()) emptyList()
         else MemosJson.decodeFromString(
             kotlinx.serialization.builtins.ListSerializer(AttachmentDto.serializer()),
@@ -469,19 +495,23 @@ class MemoRepository(
         val newAttachments = attachments ?: priorAttachments
 
         val optimistic = prior.copy(
-            content = content,
+            content = newContent,
             visibility = newVisibility,
+            state = newState,
             attachmentsJson = encodeAttachments(newAttachments),
             cachedAtEpochMs = currentTimeMillis(),
         )
         withContext(NonCancellable) {
             dao.upsert(optimistic)
             // Replace the prior pending CREATE payload so the queued action
-            // carries the latest content/visibility/attachments.
+            // carries the latest content/visibility/attachments. State is
+            // intentionally not propagated to the CREATE payload — memos'
+            // CreateMemoRequest has no state field, so archiving an unsynced
+            // memo only sticks locally until the create lands.
             pendingActionDao.findFirst(PendingActionType.CREATE.storedValue, tempName)?.let {
                 pendingActionDao.deleteById(it.id)
             }
-            enqueuePendingCreate(tempName, content, newVisibility, newAttachments)
+            enqueuePendingCreate(tempName, newContent, newVisibility, newAttachments)
         }
         return optimistic.toDto()
     }

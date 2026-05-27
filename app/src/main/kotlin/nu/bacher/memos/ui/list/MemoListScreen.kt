@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
@@ -97,28 +98,34 @@ fun MemoListScreen(
     vm: MemoListViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsState()
-    val selectedMemoName by vm.selectedMemoName.collectAsState()
+    val selectedNames by vm.selectedNames.collectAsState()
     val pagingItems = vm.memos.collectAsLazyPagingItems()
     var menuOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    val inSelectionMode = selectedNames.isNotEmpty()
 
     // Back exits selection mode before falling through to nav back.
-    BackHandler(enabled = selectedMemoName != null) { vm.clearSelection() }
+    BackHandler(enabled = inSelectionMode) { vm.clearSelection() }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             when {
-                selectedMemoName != null -> SelectionTopBar(
+                inSelectionMode -> SelectionTopBar(
+                    count = selectedNames.size,
                     onClear = { vm.clearSelection() },
-                    onEdit = {
-                        selectedMemoName?.let { name ->
+                    // Edit is only meaningful for exactly one selection; the
+                    // bar hides the icon otherwise so the user isn't tempted
+                    // to open a multi-edit screen we don't have.
+                    onEdit = selectedNames.singleOrNull()?.let { name ->
+                        {
                             onEditMemo(name)
                             vm.clearSelection()
                         }
                     },
+                    onArchive = { vm.archiveSelected() },
                     onDelete = { showDeleteConfirm = true },
                 )
                 searchOpen -> SearchTopBar(
@@ -199,12 +206,12 @@ fun MemoListScreen(
                     layout = state.layout,
                     query = state.query,
                     selectedTag = state.selectedTag,
-                    selectedMemoName = selectedMemoName,
+                    selectedNames = selectedNames,
                     onOpenMemo = { name ->
                         // In selection mode, tap toggles selection rather
                         // than opening — keeps multi-step deletion fast and
                         // matches the standard Android contextual pattern.
-                        if (selectedMemoName != null) vm.toggleSelection(name)
+                        if (inSelectionMode) vm.toggleSelection(name)
                         else onOpenMemo(name)
                     },
                     onLongPressMemo = vm::toggleSelection,
@@ -214,11 +221,22 @@ fun MemoListScreen(
     }
 
     if (showDeleteConfirm) {
+        val count = selectedNames.size
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-            title = { Text(stringResource(R.string.edit_delete_confirm_title)) },
-            text = { Text(stringResource(R.string.edit_delete_confirm_message)) },
+            title = {
+                Text(
+                    if (count <= 1) stringResource(R.string.edit_delete_confirm_title)
+                    else stringResource(R.string.list_delete_confirm_title_count, count),
+                )
+            },
+            text = {
+                Text(
+                    if (count <= 1) stringResource(R.string.edit_delete_confirm_message)
+                    else stringResource(R.string.list_delete_confirm_message_count, count),
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -244,8 +262,10 @@ fun MemoListScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SelectionTopBar(
+    count: Int,
     onClear: () -> Unit,
-    onEdit: () -> Unit,
+    onEdit: (() -> Unit)?,
+    onArchive: () -> Unit,
     onDelete: () -> Unit,
 ) {
     TopAppBar(
@@ -257,12 +277,22 @@ private fun SelectionTopBar(
                 )
             }
         },
-        title = { Text(stringResource(R.string.list_selection_title)) },
+        title = {
+            Text(stringResource(R.string.list_selection_title_count, count))
+        },
         actions = {
-            IconButton(onClick = onEdit) {
+            if (onEdit != null) {
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = stringResource(R.string.list_selection_edit),
+                    )
+                }
+            }
+            IconButton(onClick = onArchive) {
                 Icon(
-                    Icons.Filled.Edit,
-                    contentDescription = stringResource(R.string.list_selection_edit),
+                    Icons.Filled.Archive,
+                    contentDescription = stringResource(R.string.list_selection_archive),
                 )
             }
             IconButton(onClick = onDelete) {
@@ -354,7 +384,7 @@ private fun MemoResultsBody(
     layout: MemoLayout,
     query: String,
     selectedTag: String?,
-    selectedMemoName: String?,
+    selectedNames: Set<String>,
     onOpenMemo: (String) -> Unit,
     onLongPressMemo: (String) -> Unit,
 ) {
@@ -395,7 +425,7 @@ private fun MemoResultsBody(
                     attachments = row.memo.attachments,
                     reminder = row.reminder,
                     pendingSync = row.pendingSync,
-                    selected = row.memo.name == selectedMemoName,
+                    selected = row.memo.name in selectedNames,
                     onClick = { onOpenMemo(row.memo.name) },
                     onLongClick = { onLongPressMemo(row.memo.name) },
                 )
@@ -420,7 +450,7 @@ private fun MemoResultsBody(
                     attachments = row.memo.attachments,
                     reminder = row.reminder,
                     pendingSync = row.pendingSync,
-                    selected = row.memo.name == selectedMemoName,
+                    selected = row.memo.name in selectedNames,
                     onClick = { onOpenMemo(row.memo.name) },
                     onLongClick = { onLongPressMemo(row.memo.name) },
                 )

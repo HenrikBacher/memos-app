@@ -4,7 +4,9 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Share
@@ -90,13 +93,20 @@ fun MemoEditScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
 
-    // Back path: if there are no unsaved edits, just leave. Otherwise prompt
-    // the user — saving is only triggered explicitly via the Save button.
+    // Read dirty off the collected state so BackHandler.enabled stays in
+    // sync, and so the system handles predictive back when there's nothing
+    // to confirm (a BackHandler that always intercepts blocks the gesture
+    // preview animation).
+    val isDirty = remember(state) { vm.isDirty() }
     val attemptBack: () -> Unit = {
-        if (vm.isDirty()) showDiscardConfirm = true else onBack()
+        if (isDirty) showDiscardConfirm = true else onBack()
     }
 
-    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    // Two pickers because Android 13's photo picker (PickVisualMedia) is
+    // permission-free and gives the modern carousel UI, while GetContent
+    // still wins for non-image/video files. The chip exposes both via a
+    // dropdown so users pick the right one for what they're attaching.
+    val handlePicked: (Uri?) -> Unit = { uri ->
         if (uri != null) {
             scope.launch {
                 val picked = readPickedFile(context, uri)
@@ -106,6 +116,8 @@ fun MemoEditScreen(
             }
         }
     }
+    val pickVisualMedia = rememberLauncherForActivityResult(PickVisualMedia(), handlePicked)
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent(), handlePicked)
 
     LaunchedEffect(memoName, initialContent, startInEditMode) {
         vm.load(memoName, initialContent, startInEditMode)
@@ -115,7 +127,9 @@ fun MemoEditScreen(
         state.error?.let { snackbarHostState.showSnackbar(it) }
     }
 
-    BackHandler { attemptBack() }
+    // Only intercept when we'd otherwise lose unsaved work — lets predictive
+    // back animate the screen pop normally for the read/clean case.
+    BackHandler(enabled = isDirty) { showDiscardConfirm = true }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -264,7 +278,12 @@ fun MemoEditScreen(
             EditActionsRow(
                 state = state,
                 isEditing = state.isEditing,
-                onPickAttachment = { pickFile.launch("*/*") },
+                onPickPhoto = {
+                    pickVisualMedia.launch(
+                        PickVisualMediaRequest(PickVisualMedia.ImageAndVideo),
+                    )
+                },
+                onPickFile = { pickFile.launch("*/*") },
                 onSetVisibility = vm::setVisibility,
                 onOpenReminderSheet = { showReminderSheet = true },
                 onClearReminder = { vm.clearReminder() },
@@ -342,7 +361,8 @@ fun MemoEditScreen(
 private fun EditActionsRow(
     state: MemoEditViewModel.State,
     isEditing: Boolean,
-    onPickAttachment: () -> Unit,
+    onPickPhoto: () -> Unit,
+    onPickFile: () -> Unit,
     onSetVisibility: (String) -> Unit,
     onOpenReminderSheet: () -> Unit,
     onClearReminder: () -> Unit,
@@ -363,25 +383,10 @@ private fun EditActionsRow(
         )
 
         if (isEditing) {
-            AssistChip(
-                onClick = onPickAttachment,
-                enabled = !state.uploading,
-                leadingIcon = {
-                    if (state.uploading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Icon(Icons.Filled.AttachFile, null, modifier = Modifier.size(18.dp))
-                    }
-                },
-                label = {
-                    Text(
-                        if (state.uploading) stringResource(R.string.edit_uploading)
-                        else stringResource(R.string.edit_add_attachment),
-                    )
-                },
+            AttachmentChip(
+                uploading = state.uploading,
+                onPickPhoto = onPickPhoto,
+                onPickFile = onPickFile,
             )
         }
 
@@ -415,6 +420,55 @@ private fun EditActionsRow(
                     Text(stringResource(R.string.edit_clear_reminder))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentChip(
+    uploading: Boolean,
+    onPickPhoto: () -> Unit,
+    onPickFile: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        AssistChip(
+            onClick = { open = true },
+            enabled = !uploading,
+            leadingIcon = {
+                if (uploading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(Icons.Filled.AttachFile, null, modifier = Modifier.size(18.dp))
+                }
+            },
+            label = {
+                Text(
+                    if (uploading) stringResource(R.string.edit_uploading)
+                    else stringResource(R.string.edit_add_attachment),
+                )
+            },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.edit_attach_photo)) },
+                leadingIcon = { Icon(Icons.Filled.Image, null) },
+                onClick = {
+                    open = false
+                    onPickPhoto()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.edit_attach_file)) },
+                leadingIcon = { Icon(Icons.Filled.AttachFile, null) },
+                onClick = {
+                    open = false
+                    onPickFile()
+                },
+            )
         }
     }
 }

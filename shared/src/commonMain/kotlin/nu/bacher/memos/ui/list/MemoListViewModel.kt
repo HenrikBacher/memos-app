@@ -66,15 +66,15 @@ class MemoListViewModel(
 
     private val query = MutableStateFlow("")
     private val selectedTag = MutableStateFlow<String?>(null)
-    private val _selectedMemoName = MutableStateFlow<String?>(null)
+    private val _selectedNames = MutableStateFlow<Set<String>>(emptySet())
 
     /**
-     * The memo currently selected via long-press, or null when not in
-     * selection mode. Single-selection only — picking another memo replaces
-     * the prior selection. Kept separate from [state] so toggling it doesn't
-     * churn the combine pipeline that feeds tag chips.
+     * Names of memos currently selected via long-press; empty when not in
+     * selection mode. Toggling adds/removes individual memos so the user can
+     * pick a batch for bulk delete/archive. Kept separate from [state] so
+     * toggling it doesn't churn the combine pipeline that feeds tag chips.
      */
-    val selectedMemoName: StateFlow<String?> = _selectedMemoName.asStateFlow()
+    val selectedNames: StateFlow<Set<String>> = _selectedNames.asStateFlow()
     private val reminderMap: Flow<Map<String, ReminderEntity>> =
         reminderRepo.observeAll()
             .map { list -> list.associateBy { it.memoName } }
@@ -140,9 +140,12 @@ class MemoListViewModel(
         }.flatMapLatest { (q, tag, reminders, pending) ->
             val source: Flow<PagingData<MemoDto>> = if (q.isBlank()) {
                 // Cached path — server doesn't know about [tag], so apply it
-                // client-side over loaded pages.
+                // client-side over loaded pages. Archived memos are filtered
+                // here too so the main list stays focused on active memos
+                // (search results still surface archived; that's intentional
+                // — explicit search is the way to find old archived notes).
                 memoRepo.memosPagingData.map { paging ->
-                    paging.filter { memo -> tagMatches(memo, tag) }
+                    paging.filter { memo -> memo.state != STATE_ARCHIVED && tagMatches(memo, tag) }
                 }
             } else {
                 // Server-side search. Tag is sent in the filter so the
@@ -194,29 +197,60 @@ class MemoListViewModel(
     }
 
     fun toggleSelection(name: String) {
-        _selectedMemoName.update { current -> if (current == name) null else name }
+        _selectedNames.update { current ->
+            if (name in current) current - name else current + name
+        }
     }
 
     fun clearSelection() {
-        _selectedMemoName.value = null
+        _selectedNames.value = emptySet()
     }
 
     /**
-     * Delete the currently-selected memo and exit selection mode. No-op if
-     * nothing is selected. Errors are swallowed — the repo applies the
+     * Delete every selected memo and exit selection mode. No-op when nothing
+     * is selected. Errors are swallowed per-memo — the repo applies the
      * optimistic cache write either way and queues the network call for
      * later when offline.
      */
     fun deleteSelected() {
-        val name = _selectedMemoName.value ?: return
-        _selectedMemoName.value = null
+        val names = _selectedNames.value
+        if (names.isEmpty()) return
+        _selectedNames.value = emptySet()
         viewModelScope.launch {
-            try {
-                memoRepo.delete(name)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // Optimistic delete already applied; sync queue will retry.
+            for (name in names) {
+                try {
+                    memoRepo.delete(name)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Optimistic delete already applied; sync queue will retry.
+                }
+            }
+        }
+    }
+
+    /**
+     * Archive every selected memo by flipping its state to ARCHIVED. Temp
+     * memos (still queued for create) are skipped — there's nothing on the
+     * server to archive yet, and the user would have to wait for the create
+     * to flush before archiving meaningfully.
+     */
+    fun archiveSelected() {
+        val names = _selectedNames.value.filterNot { it.startsWith(MemoRepository.TEMP_NAME_PREFIX) }
+        if (names.isEmpty()) {
+            _selectedNames.value = emptySet()
+            return
+        }
+        _selectedNames.value = emptySet()
+        viewModelScope.launch {
+            for (name in names) {
+                try {
+                    memoRepo.setState(name, STATE_ARCHIVED)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Optimistic state change already applied; sync queue will retry.
+                }
             }
         }
     }
@@ -236,6 +270,7 @@ class MemoListViewModel(
 
     private companion object {
         const val SEARCH_DEBOUNCE_MS = 300L
+        const val STATE_ARCHIVED = "ARCHIVED"
     }
 
     /** Local 4-tuple — Kotlin has no built-in Quadruple. */

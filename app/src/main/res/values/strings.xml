@@ -23,8 +23,11 @@
     <string name="list_view_list">List view</string>
     <string name="list_selection_clear">Clear selection</string>
     <string name="list_selection_edit">Edit memo</string>
+    <string name="list_selection_archive">Archive memos</string>
     <string name="list_selection_delete">Delete memo</string>
-    <string name="list_selection_title">1 selected</string>
+    <string name="list_selection_title_count">%1$d selected</string>
+    <string name="list_delete_confirm_title_count">Delete %1$d memos?</string>
+    <string name="list_delete_confirm_message_count">These %1$d memos will be removed from your server. This can\'t be undone.</string>
     <string name="attachment_image">Image attachment</string>
     <string name="attachment_more">+%1$d more</string>
     <string name="attachment_open_failed">No app can open this file</string>
@@ -40,7 +43,9 @@
     <string name="edit_clear_reminder">Clear reminder</string>
     <string name="edit_show_preview">Preview</string>
     <string name="edit_show_editor">Edit</string>
-    <string name="edit_add_attachment">Add file</string>
+    <string name="edit_add_attachment">Add attachment</string>
+    <string name="edit_attach_photo">Photo or video</string>
+    <string name="edit_attach_file">File</string>
     <string name="edit_remove_attachment">Remove attachment</string>
     <string name="edit_uploading">Uploading…</string>
     <string name="edit_visibility_private">Private</string>
@@ -84,11 +89,13 @@
     <string name="reminder_perm_grant">Grant</string>
 
     <string name="notification_channel_reminders">Memo reminders</string>
-    <string name="notification_channel_reminders_desc">Notifications for time- and location-based memo reminders.</string>
+    <string name="notification_channel_reminders_desc">Notifications for time-based memo reminders.</string>
+    <string name="notification_snooze_24h">Snooze 24h</string>
 
     <string name="share_saving">Saving memo…</string>
     <string name="share_saved">Memo saved</string>
     <string name="share_failed">Could not save memo</string>
 
     <string name="widget_new_memo">New memo</string>
+    <string name="widget_empty">No memos yet</string>
 </resources>

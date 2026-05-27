@@ -224,6 +224,27 @@ class OfflineQueueTest {
     }
 
     @Test
+    fun delete_supersedes_prior_queued_update_so_replay_cannot_404() = runTest {
+        // UPDATE then DELETE while offline — the queued UPDATE would replay
+        // first and hit a memo the server doesn't have, so DELETE must drop
+        // it before queueing itself.
+        val prior = entity("memos/x").copy(content = "v0")
+        val dao = FakeMemoDao().also { it.replaceAll(listOf(prior)) }
+        val pendingDao = FakePendingActionDao()
+        val engine = MockEngine { _ -> respondError(HttpStatusCode.InternalServerError) }
+        val repo = repo(engine, dao, pendingDao)
+
+        repo.update("memos/x", content = "v1")
+        assertEquals(PendingActionType.UPDATE.storedValue, pendingDao.rows.single().type)
+
+        repo.delete("memos/x")
+
+        val queued = pendingDao.rows.single()
+        assertEquals(PendingActionType.DELETE.storedValue, queued.type)
+        assertEquals("memos/x", queued.memoName)
+    }
+
+    @Test
     fun delete_queues_when_api_fails_retriably_and_keeps_cache_empty() = runTest {
         val prior = entity("memos/x")
         val dao = FakeMemoDao().also { it.replaceAll(listOf(prior)) }

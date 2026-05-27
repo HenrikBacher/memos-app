@@ -20,10 +20,13 @@ object PendingPayload {
 
     @Serializable
     data class Update(
-        val content: String,
-        val visibility: String?,
+        /** Null means "don't touch content"; an empty string still counts as a deliberate clear. */
+        val content: String? = null,
+        val visibility: String? = null,
+        /** memos lifecycle: "NORMAL" / "ARCHIVED". Null means "don't touch state". */
+        val state: String? = null,
         /** Null means "don't touch attachments on the server"; empty means "clear them". */
-        val attachmentNames: List<String>?,
+        val attachmentNames: List<String>? = null,
     )
 }
 

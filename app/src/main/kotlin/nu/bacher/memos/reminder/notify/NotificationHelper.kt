@@ -15,10 +15,14 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import nu.bacher.memos.MainActivity
 import nu.bacher.memos.R
+import nu.bacher.memos.reminder.time.AlarmReceiver
+import nu.bacher.memos.reminder.time.AlarmScheduler
 
 object NotificationHelper {
     const val CHANNEL_REMINDERS = "memo_reminders"
     private const val TAG = "NotificationHelper"
+    /** XOR salt so the snooze PendingIntent doesn't collide with the open-memo PI. */
+    private const val SNOOZE_REQUEST_CODE_SALT = 0x534E5A45
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService<NotificationManager>() ?: return
@@ -68,12 +72,32 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        val snoozeIntent = Intent(context, AlarmReceiver::class.java).apply {
+            action = AlarmScheduler.ACTION_SNOOZE
+            putExtra(AlarmScheduler.EXTRA_MEMO_NAME, memoName)
+        }
+        // Distinct request code from the activity-open PI above (which also
+        // uses memoName.hashCode()) — otherwise PendingIntent.getBroadcast
+        // would overwrite the activity PI's extras since the intent matcher
+        // ignores extras.
+        val snoozePi = PendingIntent.getBroadcast(
+            context,
+            memoName.hashCode() xor SNOOZE_REQUEST_CODE_SALT,
+            snoozeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(context, CHANNEL_REMINDERS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.app_name))
             .setContentText(snippet)
             .setStyle(NotificationCompat.BigTextStyle().bigText(snippet))
             .setContentIntent(pi)
+            .addAction(
+                R.drawable.ic_notification,
+                context.getString(R.string.notification_snooze_24h),
+                snoozePi,
+            )
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
