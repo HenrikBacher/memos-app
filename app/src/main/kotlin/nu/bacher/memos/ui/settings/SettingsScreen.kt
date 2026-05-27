@@ -268,7 +268,6 @@ private fun LogoutRow(onClick: () -> Unit) {
             contentDescription = null,
             tint = MaterialTheme.colorScheme.error,
         )
-        Spacer(Modifier.height(0.dp))
         Text(
             stringResource(R.string.settings_logout),
             modifier = Modifier.padding(start = 16.dp),

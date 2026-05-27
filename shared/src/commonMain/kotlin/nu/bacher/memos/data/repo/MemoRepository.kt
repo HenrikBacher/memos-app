@@ -60,6 +60,15 @@ class MemoRepository(
     val pendingNames: Flow<Set<String>>
         get() = pendingActionDao.observePendingNames().mapFlow { it.toSet() }
 
+    // Match initialLoadSize to one server page so the first network call
+    // delivers a full screen without the mediator immediately issuing an APPEND.
+    private val pagingConfig = PagingConfig(
+        pageSize = SERVER_PAGE_SIZE,
+        initialLoadSize = SERVER_PAGE_SIZE,
+        prefetchDistance = SERVER_PAGE_SIZE / 2,
+        enablePlaceholders = false,
+    )
+
     /**
      * Stream of memos paged from the local cache and refilled by the
      * RemoteMediator on demand. Construct one Pager per call so each consumer
@@ -67,15 +76,7 @@ class MemoRepository(
      */
     val memosPagingData: Flow<PagingData<MemoDto>>
         get() = Pager(
-            config = PagingConfig(
-                pageSize = SERVER_PAGE_SIZE,
-                // Match initialLoadSize to one server page so the first
-                // network call delivers a full screen without the mediator
-                // immediately issuing an APPEND.
-                initialLoadSize = SERVER_PAGE_SIZE,
-                prefetchDistance = SERVER_PAGE_SIZE / 2,
-                enablePlaceholders = false,
-            ),
+            config = pagingConfig,
             remoteMediator = MemosRemoteMediator(api = api, dao = dao),
             pagingSourceFactory = { dao.pagingSource() },
         ).flow.mapFlow { it.map { entity -> entity.toDto() } }
@@ -95,12 +96,7 @@ class MemoRepository(
     fun searchMemosPagingData(query: String, tag: String? = null): Flow<PagingData<MemoDto>> {
         val filter = buildSearchFilter(query, tag)
         return Pager(
-            config = PagingConfig(
-                pageSize = SERVER_PAGE_SIZE,
-                initialLoadSize = SERVER_PAGE_SIZE,
-                prefetchDistance = SERVER_PAGE_SIZE / 2,
-                enablePlaceholders = false,
-            ),
+            config = pagingConfig,
             pagingSourceFactory = { MemoApiPagingSource(api, filter) },
         ).flow
     }
@@ -488,10 +484,7 @@ class MemoRepository(
         val newVisibility = visibility ?: prior.visibility
         val newState = state ?: prior.state
         val priorAttachments = if (prior.attachmentsJson.isEmpty()) emptyList()
-        else MemosJson.decodeFromString(
-            kotlinx.serialization.builtins.ListSerializer(AttachmentDto.serializer()),
-            prior.attachmentsJson,
-        )
+        else MemosJson.decodeFromString(AttachmentListSerializer, prior.attachmentsJson)
         val newAttachments = attachments ?: priorAttachments
 
         val optimistic = prior.copy(
@@ -569,10 +562,7 @@ private class ByteArrayRawSource(private val bytes: ByteArray) : RawSource {
 
 private fun encodeAttachments(attachments: List<AttachmentDto>): String =
     if (attachments.isEmpty()) ""
-    else nu.bacher.memos.data.api.MemosJson.encodeToString(
-        kotlinx.serialization.builtins.ListSerializer(AttachmentDto.serializer()),
-        attachments,
-    )
+    else MemosJson.encodeToString(AttachmentListSerializer, attachments)
 
 /**
  * Builds the memos v1 `filter` query expression for a search. Returns null

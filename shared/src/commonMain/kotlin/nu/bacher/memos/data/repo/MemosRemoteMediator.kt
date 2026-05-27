@@ -84,7 +84,7 @@ class MemosRemoteMediator(
     }
 }
 
-private val AttachmentListSerializer = ListSerializer(AttachmentDto.serializer())
+internal val AttachmentListSerializer = ListSerializer(AttachmentDto.serializer())
 
 internal fun MemoDto.toEntity(orderInList: Int, cachedAtEpochMs: Long): MemoEntity =
     MemoEntity(

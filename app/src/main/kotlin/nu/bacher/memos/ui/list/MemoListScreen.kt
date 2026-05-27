@@ -93,6 +93,8 @@ import androidx.compose.ui.platform.LocalContext
 import nu.bacher.memos.R
 import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.db.ReminderEntity
+import nu.bacher.memos.data.repo.ErrorKind
+import nu.bacher.memos.data.repo.classify
 import nu.bacher.memos.data.settings.MemoLayout
 import nu.bacher.memos.ui.attachments.AttachmentCardPreview
 import nu.bacher.memos.ui.reminder.reminderLabel
@@ -450,15 +452,7 @@ private fun MemoResultsBody(
                 contentType = pagingItems.itemContentType { "memo" },
             ) { index ->
                 val row = pagingItems[index] ?: return@items
-                MemoCard(
-                    content = row.memo.content,
-                    attachments = row.memo.attachments,
-                    reminder = row.reminder,
-                    pendingSync = row.pendingSync,
-                    selected = row.memo.name in selectedNames,
-                    onClick = { onOpenMemo(row.memo.name) },
-                    onLongClick = { onLongPressMemo(row.memo.name) },
-                )
+                RowMemoCard(row, selectedNames, onOpenMemo, onLongPressMemo)
             }
             if (pagingItems.loadState.append is LoadState.Loading) {
                 item { Spacer(Modifier.height(8.dp)) }
@@ -475,21 +469,31 @@ private fun MemoResultsBody(
                 contentType = pagingItems.itemContentType { "memo" },
             ) { index ->
                 val row = pagingItems[index] ?: return@items
-                MemoCard(
-                    content = row.memo.content,
-                    attachments = row.memo.attachments,
-                    reminder = row.reminder,
-                    pendingSync = row.pendingSync,
-                    selected = row.memo.name in selectedNames,
-                    onClick = { onOpenMemo(row.memo.name) },
-                    onLongClick = { onLongPressMemo(row.memo.name) },
-                )
+                RowMemoCard(row, selectedNames, onOpenMemo, onLongPressMemo)
             }
             if (pagingItems.loadState.append is LoadState.Loading) {
                 item { Spacer(Modifier.height(8.dp)) }
             }
         }
     }
+}
+
+@Composable
+private fun RowMemoCard(
+    row: MemoListViewModel.Row,
+    selectedNames: Set<String>,
+    onOpenMemo: (String) -> Unit,
+    onLongPressMemo: (String) -> Unit,
+) {
+    MemoCard(
+        content = row.memo.content,
+        attachments = row.memo.attachments,
+        reminder = row.reminder,
+        pendingSync = row.pendingSync,
+        selected = row.memo.name in selectedNames,
+        onClick = { onOpenMemo(row.memo.name) },
+        onLongClick = { onLongPressMemo(row.memo.name) },
+    )
 }
 
 @Composable
@@ -652,25 +656,8 @@ private fun MemoCard(
  * exception message (often a Ktor/JVM stack-trace flavored string) and bucket
  * by whether the failure is network, auth, or anything else.
  */
-private fun friendlyErrorMessage(t: Throwable): Int {
-    var current: Throwable? = t
-    while (current != null) {
-        val name = current::class.qualifiedName.orEmpty()
-        when {
-            name.endsWith("UnknownHostException") ||
-                name.endsWith("UnresolvedAddressException") ||
-                name.endsWith("ConnectException") ||
-                name.endsWith("SocketTimeoutException") ||
-                name.endsWith("HttpRequestTimeoutException") ||
-                name.endsWith("IOException") -> return R.string.list_error_network
-            name.endsWith("ClientRequestException") -> {
-                val msg = current.message.orEmpty()
-                if (msg.contains("401") || msg.contains("403")) {
-                    return R.string.list_error_auth
-                }
-            }
-        }
-        current = current.cause
-    }
-    return R.string.list_error_generic
+private fun friendlyErrorMessage(t: Throwable): Int = when (t.classify()) {
+    ErrorKind.NETWORK -> R.string.list_error_network
+    ErrorKind.AUTH -> R.string.list_error_auth
+    ErrorKind.SERVER, ErrorKind.OTHER -> R.string.list_error_generic
 }
