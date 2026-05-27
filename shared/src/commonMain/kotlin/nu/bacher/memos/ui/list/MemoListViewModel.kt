@@ -11,12 +11,15 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.api.MemoDto
 import nu.bacher.memos.data.auth.AuthStore
@@ -63,6 +66,15 @@ class MemoListViewModel(
 
     private val query = MutableStateFlow("")
     private val selectedTag = MutableStateFlow<String?>(null)
+    private val _selectedMemoName = MutableStateFlow<String?>(null)
+
+    /**
+     * The memo currently selected via long-press, or null when not in
+     * selection mode. Single-selection only — picking another memo replaces
+     * the prior selection. Kept separate from [state] so toggling it doesn't
+     * churn the combine pipeline that feeds tag chips.
+     */
+    val selectedMemoName: StateFlow<String?> = _selectedMemoName.asStateFlow()
     private val reminderMap: Flow<Map<String, ReminderEntity>> =
         reminderRepo.observeAll()
             .map { list -> list.associateBy { it.memoName } }
@@ -179,6 +191,34 @@ class MemoListViewModel(
 
     fun setLayout(layout: MemoLayout) {
         layoutPreferences.setLayout(layout)
+    }
+
+    fun toggleSelection(name: String) {
+        _selectedMemoName.update { current -> if (current == name) null else name }
+    }
+
+    fun clearSelection() {
+        _selectedMemoName.value = null
+    }
+
+    /**
+     * Delete the currently-selected memo and exit selection mode. No-op if
+     * nothing is selected. Errors are swallowed — the repo applies the
+     * optimistic cache write either way and queues the network call for
+     * later when offline.
+     */
+    fun deleteSelected() {
+        val name = _selectedMemoName.value ?: return
+        _selectedMemoName.value = null
+        viewModelScope.launch {
+            try {
+                memoRepo.delete(name)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Optimistic delete already applied; sync queue will retry.
+            }
+        }
     }
 
     fun logout() {

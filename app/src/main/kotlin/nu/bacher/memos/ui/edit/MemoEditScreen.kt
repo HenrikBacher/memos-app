@@ -121,8 +121,11 @@ fun MemoEditScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (state.memoName == null) stringResource(R.string.edit_title_new)
-                        else stringResource(R.string.edit_title_edit),
+                        when {
+                            state.memoName == null -> stringResource(R.string.edit_title_new)
+                            state.isEditing -> stringResource(R.string.edit_title_edit)
+                            else -> stringResource(R.string.edit_title_view)
+                        },
                     )
                 },
                 scrollBehavior = scrollBehavior,

@@ -1,5 +1,8 @@
 package nu.bacher.memos.ui.list
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,11 +28,15 @@ import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -88,16 +96,30 @@ fun MemoListScreen(
     vm: MemoListViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val selectedMemoName by vm.selectedMemoName.collectAsState()
     val pagingItems = vm.memos.collectAsLazyPagingItems()
     var menuOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
+    // Back exits selection mode before falling through to nav back.
+    BackHandler(enabled = selectedMemoName != null) { vm.clearSelection() }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            if (searchOpen) {
-                SearchTopBar(
+            when {
+                selectedMemoName != null -> SelectionTopBar(
+                    onClear = { vm.clearSelection() },
+                    onEdit = {
+                        val name = selectedMemoName ?: return@SelectionTopBar
+                        vm.clearSelection()
+                        onOpenMemo(name)
+                    },
+                    onDelete = { showDeleteConfirm = true },
+                )
+                searchOpen -> SearchTopBar(
                     query = state.query,
                     onQueryChange = vm::setQuery,
                     onClose = {
@@ -105,8 +127,7 @@ fun MemoListScreen(
                         vm.setQuery("")
                     },
                 )
-            } else {
-                TopAppBar(
+                else -> TopAppBar(
                     title = { Text(stringResource(R.string.list_title)) },
                     scrollBehavior = scrollBehavior,
                     actions = {
@@ -176,11 +197,80 @@ fun MemoListScreen(
                     layout = state.layout,
                     query = state.query,
                     selectedTag = state.selectedTag,
-                    onOpenMemo = onOpenMemo,
+                    selectedMemoName = selectedMemoName,
+                    onOpenMemo = { name ->
+                        // In selection mode, tap toggles selection rather
+                        // than opening — keeps multi-step deletion fast and
+                        // matches the standard Android contextual pattern.
+                        if (selectedMemoName != null) vm.toggleSelection(name)
+                        else onOpenMemo(name)
+                    },
+                    onLongPressMemo = vm::toggleSelection,
                 )
             }
         }
     }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+            title = { Text(stringResource(R.string.edit_delete_confirm_title)) },
+            text = { Text(stringResource(R.string.edit_delete_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        vm.deleteSelected()
+                    },
+                ) {
+                    Text(
+                        stringResource(R.string.edit_delete_confirm_action),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.edit_delete_cancel))
+                }
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionTopBar(
+    onClear: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    TopAppBar(
+        navigationIcon = {
+            IconButton(onClick = onClear) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.list_selection_clear),
+                )
+            }
+        },
+        title = { Text(stringResource(R.string.list_selection_title)) },
+        actions = {
+            IconButton(onClick = onEdit) {
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = stringResource(R.string.list_selection_edit),
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = stringResource(R.string.list_selection_delete),
+                )
+            }
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -262,7 +352,9 @@ private fun MemoResultsBody(
     layout: MemoLayout,
     query: String,
     selectedTag: String?,
+    selectedMemoName: String?,
     onOpenMemo: (String) -> Unit,
+    onLongPressMemo: (String) -> Unit,
 ) {
     val refresh = pagingItems.loadState.refresh
     val isInitialLoading = refresh is LoadState.Loading && pagingItems.itemCount == 0
@@ -301,7 +393,9 @@ private fun MemoResultsBody(
                     attachments = row.memo.attachments,
                     reminder = row.reminder,
                     pendingSync = row.pendingSync,
+                    selected = row.memo.name == selectedMemoName,
                     onClick = { onOpenMemo(row.memo.name) },
+                    onLongClick = { onLongPressMemo(row.memo.name) },
                 )
             }
             if (pagingItems.loadState.append is LoadState.Loading) {
@@ -324,7 +418,9 @@ private fun MemoResultsBody(
                     attachments = row.memo.attachments,
                     reminder = row.reminder,
                     pendingSync = row.pendingSync,
+                    selected = row.memo.name == selectedMemoName,
                     onClick = { onOpenMemo(row.memo.name) },
+                    onLongClick = { onLongPressMemo(row.memo.name) },
                 )
             }
             if (pagingItems.loadState.append is LoadState.Loading) {
@@ -362,17 +458,30 @@ private fun TagFilterRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MemoCard(
     content: String,
     attachments: List<AttachmentDto>,
     reminder: ReminderEntity?,
     pendingSync: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
+    // Card has no combined-click overload, so attach combinedClickable on the
+    // Modifier and use the non-clickable Card constructor.
     Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        colors = if (selected) {
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            )
+        } else {
+            CardDefaults.cardColors()
+        },
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             if (pendingSync) {

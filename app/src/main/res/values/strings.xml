@@ -21,12 +21,17 @@
     <string name="list_tag_all">All</string>
     <string name="list_view_grid">Grid view</string>
     <string name="list_view_list">List view</string>
+    <string name="list_selection_clear">Clear selection</string>
+    <string name="list_selection_edit">Edit memo</string>
+    <string name="list_selection_delete">Delete memo</string>
+    <string name="list_selection_title">1 selected</string>
     <string name="attachment_image">Image attachment</string>
     <string name="attachment_more">+%1$d more</string>
     <string name="attachment_open_failed">No app can open this file</string>
     <string name="attachment_viewer_close">Close</string>
 
     <string name="edit_title_new">New memo</string>
+    <string name="edit_title_view">Memo</string>
     <string name="edit_title_edit">Edit memo</string>
     <string name="edit_content_hint">Write a memo…</string>
     <string name="edit_delete">Delete</string>
