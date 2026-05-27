@@ -12,6 +12,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.play.publisher)
+    alias(libs.plugins.aboutlibraries)
 }
 
 val releaseKeystorePath: String? = System.getenv("ANDROID_KEYSTORE_PATH")
@@ -110,6 +111,8 @@ dependencies {
     implementation(libs.androidx.glance.material3)
 
     implementation(libs.markdown.renderer.m3)
+
+    implementation(libs.aboutlibraries.compose.m3)
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.ktor3)

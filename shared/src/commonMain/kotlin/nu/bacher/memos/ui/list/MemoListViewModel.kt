@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.api.MemoDto
-import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.ReminderEntity
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
@@ -46,7 +45,6 @@ import nu.bacher.memos.data.settings.MemoLayout
 class MemoListViewModel(
     private val memoRepo: MemoRepository,
     private val reminderRepo: ReminderRepository,
-    private val authStore: AuthStore,
     private val layoutPreferences: LayoutPreferences,
     private val memoDao: nu.bacher.memos.data.db.MemoDao,
 ) : ViewModel() {
@@ -253,13 +251,6 @@ class MemoListViewModel(
                 }
             }
         }
-    }
-
-    fun logout() {
-        viewModelScope.launch {
-            memoRepo.clearCache()
-        }
-        authStore.clear()
     }
 
     private fun tagMatches(memo: MemoDto, tag: String?): Boolean {

@@ -103,7 +103,7 @@ fun MemoListScreen(
     onOpenMemo: (String) -> Unit,
     onEditMemo: (String) -> Unit,
     onCreateMemo: () -> Unit,
-    onLogout: () -> Unit,
+    onOpenSettings: () -> Unit,
     vm: MemoListViewModel = koinViewModel(),
 ) {
     val state by vm.state.collectAsState()
@@ -168,11 +168,10 @@ fun MemoListScreen(
                                 onDismissRequest = { menuOpen = false },
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.list_logout)) },
+                                    text = { Text(stringResource(R.string.list_settings)) },
                                     onClick = {
                                         menuOpen = false
-                                        vm.logout()
-                                        onLogout()
+                                        onOpenSettings()
                                     },
                                 )
                             }

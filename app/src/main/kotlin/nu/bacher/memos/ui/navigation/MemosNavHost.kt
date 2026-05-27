@@ -12,6 +12,8 @@ import kotlinx.serialization.Serializable
 import nu.bacher.memos.ui.edit.MemoEditScreen
 import nu.bacher.memos.ui.list.MemoListScreen
 import nu.bacher.memos.ui.login.LoginScreen
+import nu.bacher.memos.ui.settings.LicensesScreen
+import nu.bacher.memos.ui.settings.SettingsScreen
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -30,6 +32,8 @@ sealed interface NavLaunch {
 @Serializable private data object Splash
 @Serializable private data object Login
 @Serializable private data object MemoList
+@Serializable private data object Settings
+@Serializable private data object Licenses
 @Serializable private data class MemoEdit(
     val name: String? = null,
     val initial: String? = null,
@@ -83,12 +87,24 @@ fun MemosNavHost(
                     navController.navigate(MemoEdit(name = name, startInEditMode = true))
                 },
                 onCreateMemo = { navController.navigate(MemoEdit()) },
-                onLogout = {
+                onOpenSettings = { navController.navigate(Settings) },
+            )
+        }
+
+        composable<Settings> {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLicenses = { navController.navigate(Licenses) },
+                onLoggedOut = {
                     navController.navigate(Login) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
             )
+        }
+
+        composable<Licenses> {
+            LicensesScreen(onBack = { navController.popBackStack() })
         }
 
         composable<MemoEdit> { backStackEntry ->

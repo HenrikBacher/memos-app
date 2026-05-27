@@ -5,13 +5,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.repo.MemoRepository
+import nu.bacher.memos.data.settings.ThemePreferences
 import nu.bacher.memos.ui.link.ProvideMemosUriHandler
 import nu.bacher.memos.ui.navigation.MemosNavHost
 import nu.bacher.memos.ui.navigation.NavLaunch
@@ -21,6 +24,7 @@ import org.koin.android.ext.android.inject
 class MainActivity : ComponentActivity() {
 
     private val memoRepository: MemoRepository by inject()
+    private val themePreferences: ThemePreferences by inject()
 
     /**
      * Compose state for the current intent's deep-link payload. Lifted out of
@@ -37,7 +41,12 @@ class MainActivity : ComponentActivity() {
         navLaunch = readLaunch(intent)
 
         setContent {
-            MemosTheme {
+            // Read theme settings synchronously first so the very first frame
+            // already reflects the user's choice — collecting only the flow
+            // would briefly render with defaults before swapping.
+            val initial = remember { themePreferences.read() }
+            val theme by themePreferences.settingsFlow.collectAsState(initial = initial)
+            MemosTheme(settings = theme) {
                 ProvideMemosUriHandler {
                     MemosNavHost(launch = navLaunch)
                 }

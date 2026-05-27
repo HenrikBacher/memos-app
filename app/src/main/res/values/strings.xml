@@ -19,6 +19,29 @@
     <string name="list_error_generic">Something went wrong loading memos.</string>
     <string name="list_retry">Retry</string>
     <string name="list_more_options">More options</string>
+    <string name="list_settings">Settings</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">Back</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_section_about">About</string>
+    <string name="settings_section_account">Account</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">Follow system</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_dynamic_color">Dynamic color</string>
+    <string name="settings_dynamic_color_summary">Colour scheme from your wallpaper.</string>
+    <string name="settings_licenses">Open source licenses</string>
+    <string name="settings_licenses_summary">Libraries this app is built on.</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_logout">Log out</string>
+    <string name="settings_logout_confirm_title">Log out?</string>
+    <string name="settings_logout_confirm_message">You\'ll need your server URL and token to sign in again. Cached memos will be cleared.</string>
+    <string name="settings_logout_confirm_action">Log out</string>
+    <string name="settings_logout_cancel">Cancel</string>
+
+    <string name="licenses_title">Open source licenses</string>
     <string name="list_fab_new">New memo</string>
     <string name="list_logout">Log out</string>
     <string name="list_refresh">Refresh</string>

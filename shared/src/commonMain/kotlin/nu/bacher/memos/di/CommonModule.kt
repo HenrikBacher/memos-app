@@ -9,10 +9,12 @@ import nu.bacher.memos.data.db.MemosDatabase
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
 import nu.bacher.memos.data.settings.LayoutPreferences
+import nu.bacher.memos.data.settings.ThemePreferences
 import nu.bacher.memos.ui.edit.MemoEditViewModel
 import nu.bacher.memos.ui.list.MemoListViewModel
 import nu.bacher.memos.ui.login.LoginViewModel
 import nu.bacher.memos.ui.navigation.RootViewModel
+import nu.bacher.memos.ui.settings.SettingsViewModel
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -29,6 +31,7 @@ fun commonModule(enableHttpLogging: Boolean = false) = module {
 
     singleOf(::AuthStore)
     singleOf(::LayoutPreferences)
+    singleOf(::ThemePreferences)
 
     single {
         buildMemosHttpClient(
@@ -54,4 +57,5 @@ fun commonModule(enableHttpLogging: Boolean = false) = module {
     viewModelOf(::MemoEditViewModel)
     viewModelOf(::LoginViewModel)
     viewModelOf(::RootViewModel)
+    viewModelOf(::SettingsViewModel)
 }
