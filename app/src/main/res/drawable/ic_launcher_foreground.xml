@@ -4,19 +4,13 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <!--
-        Stylized lowercase "m" rendered as two stroked humps. Stroke-only (no
-        fill) so the same drawable doubles as the themed/monochrome icon —
-        Android tints alpha pixels and leaves transparent ones alone.
-
-        Bounds fit within the adaptive-icon safe zone (66dp circle centered on
-        108dp canvas): the glyph extends roughly x=33..75, y=33..77, well
-        within radius 33 from center (54, 54).
+        Calligraphic lowercase "m" — the outline of the chancery glyph from
+        URW Chancery L (Z003 Medium Italic), traced to a single filled contour
+        and scaled into the adaptive-icon safe zone (centered on 54,54, within
+        radius ~31). Filled white-on-alpha so the drawable still doubles as the
+        themed / monochrome icon.
     -->
     <path
-        android:strokeColor="#FFFFFFFF"
-        android:fillColor="#00000000"
-        android:strokeWidth="9"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M38,72 V50 Q38,38 46,38 Q54,38 54,50 V72 M54,72 V50 Q54,38 62,38 Q70,38 70,50 V72" />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M41.16,36.04 L42.16,36.04 L42.84,36.71 L41.33,45.44 L53.08,38.22 L57.61,36.04 L58.62,36.04 L59.29,36.54 L57.78,44.93 L72.55,36.71 L74.4,36.04 L75.91,36.21 L76.24,38.56 L71.04,57.36 L70.2,63.74 L71.04,65.08 L72.55,65.25 L80.1,60.88 L80.1,62.73 L74.73,66.76 L67.51,71.12 L65.67,71.96 L64.32,70.79 L63.65,68.61 L63.82,65.92 L68.52,45.44 L68.35,43.09 L67.35,42.42 L66.67,42.58 L62.31,44.77 L56.6,48.46 L51.57,69.28 L51.23,69.78 L45.02,71.96 L49.22,57.53 L51.73,46.61 L51.73,43.76 L51.23,43.09 L50.22,42.92 L45.86,45.1 L40.15,48.96 L34.78,69.61 L28.73,71.96 L34.61,49.13 L35.28,46.11 L35.28,43.93 L34.44,42.92 L33.27,42.92 L27.9,45.44 L28.23,43.59 L31.42,41.24 L40.99,36.21 Z" />
 </vector>
