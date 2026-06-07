@@ -3,7 +3,7 @@ package nu.bacher.memos.ui.login
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -36,6 +36,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import nu.bacher.memos.ui.common.readableContentWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import nu.bacher.memos.R
 import org.koin.compose.viewmodel.koinViewModel
@@ -55,8 +56,9 @@ fun LoginScreen(
     ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxHeight()
                 .padding(padding)
+                .readableContentWidth()
                 .padding(horizontal = 24.dp, vertical = 16.dp)
                 .imePadding()
                 .verticalScroll(rememberScrollState()),

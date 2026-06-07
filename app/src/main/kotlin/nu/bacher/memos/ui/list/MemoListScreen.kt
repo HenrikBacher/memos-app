@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -97,6 +98,7 @@ import nu.bacher.memos.data.repo.ErrorKind
 import nu.bacher.memos.data.repo.classify
 import nu.bacher.memos.data.settings.MemoLayout
 import nu.bacher.memos.ui.attachments.AttachmentCardPreview
+import nu.bacher.memos.ui.common.readableContentWidth
 import nu.bacher.memos.ui.reminder.reminderLabel
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -461,7 +463,10 @@ private fun MemoResultsBody(
         MemoLayout.LIST -> LazyColumn(
             contentPadding = PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxSize(),
+            // Cap + center the column on large screens so list rows don't stretch
+            // into unreadably wide cards; full-width on phones. (The grid above
+            // intentionally stays full-width and just gains columns.)
+            modifier = Modifier.fillMaxHeight().readableContentWidth(),
         ) {
             items(
                 count = pagingItems.itemCount,

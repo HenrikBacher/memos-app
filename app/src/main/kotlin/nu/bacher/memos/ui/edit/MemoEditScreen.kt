@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -73,6 +74,7 @@ import com.mikepenz.markdown.m3.Markdown
 import kotlinx.coroutines.launch
 import nu.bacher.memos.R
 import nu.bacher.memos.ui.attachments.AttachmentList
+import nu.bacher.memos.ui.common.readableContentWidth
 import nu.bacher.memos.ui.reminder.ReminderPickerSheet
 import nu.bacher.memos.ui.reminder.reminderLabel
 import org.koin.compose.viewmodel.koinViewModel
@@ -265,8 +267,9 @@ fun MemoEditScreen(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxHeight()
                 .padding(padding)
+                .readableContentWidth()
                 .imePadding(),
         ) {
             if (state.isEditing) {
