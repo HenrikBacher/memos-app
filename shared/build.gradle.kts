@@ -11,7 +11,7 @@ kotlin {
 
     android {
         namespace = "nu.bacher.memos.shared"
-        compileSdk = 36
+        compileSdk = 37
         minSdk = 34
 
         // Opt in to a host (unit) test compilation so the KMP-auto-created

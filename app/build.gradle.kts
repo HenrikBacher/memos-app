@@ -30,12 +30,12 @@ val publisherCredentialsPath: String? = System.getenv("ANDROID_PUBLISHER_CREDENT
 
 android {
     namespace = "nu.bacher.memos"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "nu.bacher.memos"
         minSdk = 34
-        targetSdk = 36
+        targetSdk = 37
         versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
         versionName = (project.findProperty("appVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "0.1.0"
     }
