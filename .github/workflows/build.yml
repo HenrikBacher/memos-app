@@ -31,9 +31,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          # compileSdk = 36 — make sure the platform and matching build-tools
+          # compileSdk = 37 — make sure the platform and matching build-tools
           # are present even if the runner image doesn't ship them yet.
-          packages: 'platforms;android-36 build-tools;36.0.0'
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -85,7 +85,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platforms;android-36 build-tools;36.0.0'
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
