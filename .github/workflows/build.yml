@@ -65,7 +65,9 @@ jobs:
 
   release:
     name: release & publish
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    # Runs only after a green build (needs: build). Fires on every successful
+    # push to main, on version tags, and on manual dispatch — never on PRs.
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
 
