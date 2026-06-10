@@ -11,9 +11,9 @@ Short reference for coding agents (Claude Code, Cursor, etc.) working on this re
 ./gradlew clean                       # rare; only if state is wrong
 ```
 
-Java **21** required (Temurin or Android Studio JBR). The Gradle wrapper handles everything else.
+Java **21+** required (CI and the dev container run Temurin 25). The Gradle wrapper handles everything else. If the host has no Android SDK / `ANDROID_HOME`, build inside the dev container — `.devcontainer/` mirrors CI (JDK + SDK packages) and the project wrapper supplies Gradle.
 
-`commonTest` has real coverage now: DTO parsing, `AttachmentUrl`, `LayoutPreferences`, and `MemoRepository` (streaming upload against a Ktor `MockEngine` via `FakeMemoDao`). Add new tests next to these. **Don't add a test without a real assertion** — empty scaffolding tests get committed and never get filled in.
+`commonTest` has real coverage now: DTO parsing, `AttachmentUrl`, `LayoutPreferences`, `MemoRepository` (streaming upload against a Ktor `MockEngine` via `FakeMemoDao`), and the offline write queue (`OfflineQueueTest` — enqueue/replay, poison cap, orphan sweep). Add new tests next to these. **Don't add a test without a real assertion** — empty scaffolding tests get committed and never get filled in.
 
 Release signing reads `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` from the env. Play Publisher reads `ANDROID_PUBLISHER_CREDENTIALS_PATH` (service-account JSON). If any keystore var is missing, the release build silently falls back to unsigned — check the env, don't add a default keystore.
 
@@ -32,6 +32,9 @@ If you find yourself wanting to put a Compose `@Composable`, an `Activity`, a `B
 - **Koin's `viewModelOf(::Foo)` / `singleOf(::Foo)` do NOT honor Kotlin default parameters.** If a class has a default value on any constructor param, bind it with the explicit lambda form: `single { Foo(get(), get()) }`. There's a comment in `CommonModule.kt` about exactly this — don't undo it.
 - **Room `@Database`** uses `exportSchema = false` because the Room Gradle plugin doesn't currently forward `schemaDirectory` into the `kspAndroid` configuration in KMP. If you ever care about migrations, revisit this.
 - **The destructive-migration fallback** in `MemosDatabaseFactory.kt` is deliberate — existing installs may carry the legacy Room v2 schema from before the SQLDelight detour, and a downgrade-throw would crash on first launch.
+- **Offline queue semantics in `MemoRepository.syncPending()` are deliberate, don't "simplify" them:** a queued action is dropped as poison only after `MAX_SYNC_ATTEMPTS` replay rounds that *reached the server* (5xx). Network failures never count toward the cap — offline stretches must not eat the user's queued writes. The orphan temp-row sweep only touches `memos/local-*` rows older than `ORPHAN_MIN_AGE_MS` so it can't race an in-flight `create()` into a duplicate.
+- **Queue flush triggers** are the `ConnectivityManager` default-network callback in `MainActivity` (registered `onStart`/`onStop`; fires immediately on registration when a network is up, so it covers app-open too) plus the cold-start flush in `MemoListViewModel.init`. Don't re-add an `onResume` flush — it's redundant.
+- **No raw exception messages in UI state.** ViewModels expose typed errors (`MemoEditViewModel.EditError`, mapped via `classify()`); screens map those to string resources. The list screen's `friendlyErrorMessage` is the same pattern.
 - **expect/actual classes** are still in beta. The `-Xexpect-actual-classes` flag in `:shared` silences the warning. Don't re-add the warning suppression elsewhere.
 - **gradlew is tracked as executable in git** (`100755`). If you regenerate the wrapper on Windows, re-set the bit with `git update-index --chmod=+x gradlew`.
 
@@ -42,6 +45,7 @@ If you find yourself wanting to put a Compose `@Composable`, an `Activity`, a `B
 - Persistence: Room KMP. Single `reminders` table; reminders are ephemeral.
 - Background: `AlarmManager` (no WorkManager). Alarms don't survive reboot — `BootReceiver` re-arms them.
 - UI: Jetpack Compose + Navigation Compose. ViewModels live in `:shared` (`androidx.lifecycle.ViewModel`, the multiplatform variant). Composables resolve them via `koinViewModel()`.
+- Share: `ShareReceiverActivity` accepts `text/plain`, `image/*`, and `video/*` (`SEND` + `SEND_MULTIPLE`). Streams are uploaded as attachments before the memo is created, so image shares require being logged in — text falls back to a new-memo handoff, attachments show a "sign in first" toast.
 
 ## Don't
 
