@@ -127,6 +127,103 @@ class OfflineQueueTest {
     }
 
     @Test
+    fun syncPending_drops_poison_action_after_max_server_failures() = runTest {
+        // The server 5xxes this payload on every replay. After
+        // MAX_SYNC_ATTEMPTS rounds the action must be dropped so it can't
+        // block the queue forever.
+        val engine = MockEngine { _ ->
+            respondError(HttpStatusCode.InternalServerError)
+        }
+        val dao = FakeMemoDao()
+        val pending = FakePendingActionDao()
+        val repo = repo(engine, dao, pending)
+
+        repo.create("hello")
+        assertEquals(1, pending.rows.size)
+
+        repeat(MemoRepository.MAX_SYNC_ATTEMPTS - 1) { repo.syncPending() }
+        assertEquals(1, pending.rows.size, "action should survive until the cap")
+
+        repo.syncPending()
+        assertEquals(0, pending.rows.size, "poison action should be dropped at the cap")
+        // Optimistic temp row stays as the user's record of what they wrote.
+        assertEquals(1, dao.getAll().size)
+    }
+
+    @Test
+    fun syncPending_network_failures_do_not_count_toward_poison_cap() = runTest {
+        // First call 5xxes so the action queues; replays then fail at the
+        // network layer (server unreachable). Offline rounds must not eat the
+        // poison budget, no matter how many there are.
+        var calls = 0
+        val engine = MockEngine { _ ->
+            calls++
+            if (calls == 1) respondError(HttpStatusCode.InternalServerError)
+            else throw kotlinx.io.IOException("network down")
+        }
+        val dao = FakeMemoDao()
+        val pending = FakePendingActionDao()
+        val repo = repo(engine, dao, pending)
+
+        repo.create("hello")
+        assertEquals(1, pending.rows.size)
+
+        repeat(MemoRepository.MAX_SYNC_ATTEMPTS * 2) { repo.syncPending() }
+
+        assertEquals(1, pending.rows.size, "action should still be queued after offline rounds")
+        assertEquals(0, pending.rows.single().attempts, "network failures must not bump attempts")
+    }
+
+    @Test
+    fun syncPending_requeues_orphaned_temp_row_and_flushes_it() = runTest {
+        // A temp row with no matching pending action (process died between
+        // create()'s optimistic insert and its failure handler). The sweep
+        // should re-enqueue a CREATE and this same sync round should flush it.
+        val engine = MockEngine { _ ->
+            respond(
+                """{"name":"memos/server-1","content":"orphan"}""",
+                HttpStatusCode.OK,
+                jsonHeaders(),
+            )
+        }
+        val dao = FakeMemoDao()
+        val pending = FakePendingActionDao()
+        val repo = repo(engine, dao, pending)
+        val tempName = "${MemoRepository.TEMP_NAME_PREFIX}123"
+        // cachedAtEpochMs = 0 → far past the orphan age threshold.
+        dao.insertAtTop(entity(tempName).copy(content = "orphan", cachedAtEpochMs = 0))
+
+        repo.syncPending()
+
+        assertEquals(0, pending.rows.size)
+        assertEquals(listOf("memos/server-1"), dao.getAll().map { it.name })
+    }
+
+    @Test
+    fun syncPending_leaves_fresh_temp_rows_alone() = runTest {
+        // A temp row younger than the orphan threshold could belong to an
+        // in-flight create() — sweeping it would risk a duplicate CREATE.
+        var calls = 0
+        val engine = MockEngine { _ ->
+            calls++
+            respond("""{"name":"memos/server-1","content":"x"}""", HttpStatusCode.OK, jsonHeaders())
+        }
+        val dao = FakeMemoDao()
+        val pending = FakePendingActionDao()
+        val repo = repo(engine, dao, pending)
+        val tempName = "${MemoRepository.TEMP_NAME_PREFIX}123"
+        dao.insertAtTop(
+            entity(tempName).copy(content = "x", cachedAtEpochMs = nu.bacher.memos.util.currentTimeMillis()),
+        )
+
+        repo.syncPending()
+
+        assertEquals(0, calls, "fresh temp row must not be replayed")
+        assertEquals(0, pending.rows.size)
+        assertEquals(listOf(tempName), dao.getAll().map { it.name })
+    }
+
+    @Test
     fun update_on_pending_temp_memo_merges_into_pending_create() = runTest {
         // First create queues; subsequent update should NOT hit the network.
         var calls = 0

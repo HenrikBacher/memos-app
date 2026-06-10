@@ -11,8 +11,10 @@ import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.api.memoUid
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.ReminderEntity
+import nu.bacher.memos.data.repo.ErrorKind
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
+import nu.bacher.memos.data.repo.classify
 import nu.bacher.memos.util.currentTimeMillis
 
 class MemoEditViewModel(
@@ -20,6 +22,12 @@ class MemoEditViewModel(
     private val reminderRepo: ReminderRepository,
     private val authStore: AuthStore,
 ) : ViewModel() {
+
+    /**
+     * User-facing error buckets. The screen maps these to localized strings —
+     * raw exception messages (Ktor/JVM flavored) never reach the UI.
+     */
+    enum class EditError { NETWORK, AUTH, FILE_TOO_LARGE, GENERIC }
 
     data class State(
         val memoName: String? = null,
@@ -31,7 +39,7 @@ class MemoEditViewModel(
         val saving: Boolean = false,
         /** True while an attachment upload is in flight. */
         val uploading: Boolean = false,
-        val error: String? = null,
+        val error: EditError? = null,
         val finished: Boolean = false,
         /** True when [finished] was set by a successful save (so the UI can show a "Saved" confirmation). False after delete or empty-new-memo dismissal. */
         val savedSuccess: Boolean = false,
@@ -98,9 +106,15 @@ class MemoEditViewModel(
                 )
             }.onFailure { t ->
                 if (t is CancellationException) throw t
-                _state.update { it.copy(loading = false, error = t.message) }
+                _state.update { it.copy(loading = false, error = t.toEditError()) }
             }
         }
+    }
+
+    private fun Throwable.toEditError(): EditError = when (classify()) {
+        ErrorKind.NETWORK -> EditError.NETWORK
+        ErrorKind.AUTH -> EditError.AUTH
+        ErrorKind.SERVER, ErrorKind.OTHER -> EditError.GENERIC
     }
 
     /**
@@ -127,7 +141,7 @@ class MemoEditViewModel(
 
     fun addAttachment(bytes: ByteArray, filename: String, type: String) {
         if (bytes.size > MAX_ATTACHMENT_BYTES) {
-            _state.update { it.copy(error = ERROR_FILE_TOO_LARGE) }
+            _state.update { it.copy(error = EditError.FILE_TOO_LARGE) }
             return
         }
         viewModelScope.launch {
@@ -145,7 +159,7 @@ class MemoEditViewModel(
                 },
                 onFailure = { t ->
                     if (t is CancellationException) throw t
-                    _state.update { it.copy(uploading = false, error = t.message) }
+                    _state.update { it.copy(uploading = false, error = t.toEditError()) }
                 },
             )
         }
@@ -186,7 +200,7 @@ class MemoEditViewModel(
                 _state.update { it.copy(saving = false, finished = true, savedSuccess = true) }
             }.onFailure { t ->
                 if (t is CancellationException) throw t
-                _state.update { it.copy(saving = false, error = t.message) }
+                _state.update { it.copy(saving = false, error = t.toEditError()) }
             }
         }
     }
@@ -203,7 +217,7 @@ class MemoEditViewModel(
                 _state.update { it.copy(saving = false, finished = true) }
             }.onFailure { t ->
                 if (t is CancellationException) throw t
-                _state.update { it.copy(saving = false, error = t.message) }
+                _state.update { it.copy(saving = false, error = t.toEditError()) }
             }
         }
     }
@@ -257,6 +271,5 @@ class MemoEditViewModel(
 
         /** 20 MB — base64 JSON encoding inflates this ~33% on the wire. */
         const val MAX_ATTACHMENT_BYTES: Int = 20 * 1024 * 1024
-        const val ERROR_FILE_TOO_LARGE = "File too large (max 20 MB)"
     }
 }

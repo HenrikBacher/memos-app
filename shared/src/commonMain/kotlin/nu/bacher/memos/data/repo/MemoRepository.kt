@@ -306,11 +306,18 @@ class MemoRepository(
      * user's record of what they intended, and the next refresh will
      * reconcile against the server.
      *
+     * A 5xx that recurs across [MAX_SYNC_ATTEMPTS] sync rounds is treated as
+     * poison and dropped too — otherwise one payload the server always chokes
+     * on blocks every action queued behind it forever. Network failures don't
+     * count toward the cap: an unreachable server says nothing about the
+     * action, and offline stretches would otherwise eat the budget.
+     *
      * Safe to call concurrently with user-driven create/update/delete:
      * actions are loaded once at the top, so a new enqueue mid-flush just
      * gets picked up by the next sync.
      */
     suspend fun syncPending() {
+        reconcileOrphanTempCreates()
         val actions = pendingActionDao.getAll()
         if (actions.isEmpty()) return
 
@@ -333,15 +340,50 @@ class MemoRepository(
                 pendingActionDao.deleteById(action.id)
                 continue
             }
-            // Transient — bump counters, stop syncing this round.
+            // Transient. Server-reached failures (5xx) count toward the
+            // poison cap; pure network failures only refresh the diagnostics.
+            val attempts =
+                if (error.classify() == ErrorKind.SERVER) action.attempts + 1 else action.attempts
+            if (attempts >= MAX_SYNC_ATTEMPTS) {
+                // Poison — drop it and let the rest of the queue through.
+                pendingActionDao.deleteById(action.id)
+                continue
+            }
             pendingActionDao.update(
                 action.copy(
-                    attempts = action.attempts + 1,
+                    attempts = attempts,
                     lastAttemptEpochMs = currentTimeMillis(),
                     lastError = error.message,
                 ),
             )
             break
+        }
+    }
+
+    /**
+     * Re-queues temp-named cache rows that have no matching pending action.
+     * [create] inserts the optimistic temp row before the API call and only
+     * enqueues in its failure handler — if the process dies in between (most
+     * plausibly the share flow's invisible activity being killed mid-request),
+     * the temp row survives in Room looking like a synced memo but will never
+     * reach the server.
+     *
+     * Only rows older than [ORPHAN_MIN_AGE_MS] are swept so we can't race an
+     * in-flight [create] (temp row inserted, API call still running, nothing
+     * enqueued yet) into a duplicate CREATE.
+     */
+    private suspend fun reconcileOrphanTempCreates() {
+        val queuedNames = pendingActionDao.getAll().mapTo(mutableSetOf()) { it.memoName }
+        val cutoff = currentTimeMillis() - ORPHAN_MIN_AGE_MS
+        val orphans = dao.getAll().filter { row ->
+            row.name.startsWith(TEMP_NAME_PREFIX) &&
+                row.name !in queuedNames &&
+                row.cachedAtEpochMs < cutoff
+        }
+        for (row in orphans) {
+            val attachments = if (row.attachmentsJson.isEmpty()) emptyList()
+            else MemosJson.decodeFromString(AttachmentListSerializer, row.attachmentsJson)
+            enqueuePendingCreate(row.name, row.content, row.visibility, attachments)
         }
     }
 
@@ -540,6 +582,10 @@ class MemoRepository(
         private const val SERVER_PAGE_SIZE = 50
         /** Prefix for client-issued temp names — see [create]. */
         const val TEMP_NAME_PREFIX = "memos/local-"
+        /** Server-failure replay rounds before a queued action is dropped as poison. */
+        internal const val MAX_SYNC_ATTEMPTS = 5
+        /** Minimum temp-row age before the orphan sweep may re-queue it. */
+        internal const val ORPHAN_MIN_AGE_MS = 5 * 60_000L
     }
 }
 

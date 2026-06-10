@@ -1,6 +1,6 @@
 # Memos Android
 
-Android client for [memos](https://usememos.com) — a self-hosted note-taking server. Sign in with a server URL + access token, then create, edit, and pin memos, set time-based reminders, share text from other apps, and post quick notes from a home-screen widget.
+Android client for [memos](https://usememos.com) — a self-hosted note-taking server. Sign in with a server URL + access token, then create, edit, and pin memos, set time-based reminders, share text and images/videos from other apps, and post quick notes from a home-screen widget.
 
 ## Architecture
 

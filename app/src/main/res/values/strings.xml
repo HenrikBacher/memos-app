@@ -96,6 +96,10 @@
     <string name="edit_discard_keep_editing">Keep editing</string>
     <string name="edit_saved">Saved</string>
     <string name="edit_more_options">More options</string>
+    <string name="edit_error_network">Can\'t reach your server. Check your connection and try again.</string>
+    <string name="edit_error_auth">Your session expired. Sign in again.</string>
+    <string name="edit_error_generic">Something went wrong. Try again.</string>
+    <string name="edit_error_file_too_large">File is too large (max 20 MB).</string>
 
     <string name="list_sync_pending">Sync pending</string>
 
@@ -130,6 +134,7 @@
     <string name="share_saving">Saving memo…</string>
     <string name="share_saved">Memo saved</string>
     <string name="share_failed">Could not save memo</string>
+    <string name="share_sign_in_first">Sign in to Memos first, then share again.</string>
 
     <string name="widget_new_memo">New memo</string>
     <string name="widget_empty">No memos yet</string>

@@ -141,7 +141,7 @@ fun MemoEditScreen(
         }
     }
     LaunchedEffect(state.error) {
-        state.error?.let { snackbarHostState.showSnackbar(it) }
+        state.error?.let { snackbarHostState.showSnackbar(context.getString(it.messageRes())) }
     }
 
     // Only intercept when we'd otherwise lose unsaved work — lets predictive
@@ -556,4 +556,11 @@ private fun String.toDisplayLabel(): String = when (this) {
     MemoEditViewModel.VISIBILITY_PROTECTED -> stringResource(R.string.edit_visibility_protected)
     MemoEditViewModel.VISIBILITY_PUBLIC -> stringResource(R.string.edit_visibility_public)
     else -> this
+}
+
+private fun MemoEditViewModel.EditError.messageRes(): Int = when (this) {
+    MemoEditViewModel.EditError.NETWORK -> R.string.edit_error_network
+    MemoEditViewModel.EditError.AUTH -> R.string.edit_error_auth
+    MemoEditViewModel.EditError.FILE_TOO_LARGE -> R.string.edit_error_file_too_large
+    MemoEditViewModel.EditError.GENERIC -> R.string.edit_error_generic
 }

@@ -32,6 +32,11 @@ data class PendingActionEntity(
     /** JSON-encoded payload — shape determined by [type]. */
     val payloadJson: String,
     val createdAtEpochMs: Long,
+    /**
+     * Replay rounds where the server was reached and answered 5xx. Network
+     * failures don't count — `syncPending` drops the action as poison once
+     * this hits `MemoRepository.MAX_SYNC_ATTEMPTS`.
+     */
     val attempts: Int = 0,
     val lastAttemptEpochMs: Long? = null,
     /** Last error message — diagnostic only, not load-bearing. */

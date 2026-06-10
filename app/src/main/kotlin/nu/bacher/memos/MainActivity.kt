@@ -1,6 +1,8 @@
 package nu.bacher.memos
 
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.getSystemService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -34,6 +37,20 @@ class MainActivity : ComponentActivity() {
      * is reused under launchMode=singleTask, and onCreate doesn't run again).
      */
     private var navLaunch by mutableStateOf<NavLaunch>(NavLaunch.None)
+
+    /**
+     * Flushes the offline write queue whenever a default network becomes
+     * available while the activity is started. The system also invokes
+     * onAvailable right after registration when a network is already up, so
+     * this doubles as the "flush on app open / return from background" hook —
+     * no separate onResume flush needed.
+     */
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            // Called on a binder thread; hop to the lifecycle scope.
+            lifecycleScope.launch { flushPendingQueue() }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,19 +81,24 @@ class MainActivity : ComponentActivity() {
         if (next != NavLaunch.None) navLaunch = next
     }
 
-    override fun onResume() {
-        super.onResume()
-        // Flush the offline write queue on every resume. A no-op when the
-        // queue is empty; when it's not, the user gets their pending writes
-        // pushed as soon as they come back to the app from background.
-        lifecycleScope.launch {
-            try {
-                memoRepository.syncPending()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // Offline / transient — actions stay queued for the next resume.
-            }
+    override fun onStart() {
+        super.onStart()
+        getSystemService<ConnectivityManager>()?.registerDefaultNetworkCallback(networkCallback)
+    }
+
+    override fun onStop() {
+        getSystemService<ConnectivityManager>()?.unregisterNetworkCallback(networkCallback)
+        super.onStop()
+    }
+
+    private suspend fun flushPendingQueue() {
+        try {
+            memoRepository.syncPending()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Offline / transient — actions stay queued for the next network
+            // regain or app open.
         }
     }
 
