@@ -6,7 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.room) apply false
-    id("io.github.ben-manes.versions") version "0.62.0"
+    id("io.github.ben-manes.versions") version "0.63.1"
 }
 
 tasks.named<com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask>("dependencyUpdates") {
