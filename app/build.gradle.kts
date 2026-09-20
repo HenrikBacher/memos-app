@@ -87,6 +87,8 @@ dependencies {
     implementation(project(":shared"))
 
     implementation(libs.kotlinx.datetime)
+    // RawSource/asSource, for handing picked files to the streaming uploader.
+    implementation(libs.kotlinx.io.core)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

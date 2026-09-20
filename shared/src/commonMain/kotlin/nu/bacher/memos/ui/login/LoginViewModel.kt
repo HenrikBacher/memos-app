@@ -7,18 +7,37 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.auth.AuthStore
+import nu.bacher.memos.data.repo.ErrorKind
 import nu.bacher.memos.data.repo.MemoRepository
+import nu.bacher.memos.data.repo.classify
 
 class LoginViewModel(
     private val authStore: AuthStore,
     private val memoRepo: MemoRepository,
 ) : ViewModel() {
 
+    /**
+     * User-facing error buckets, same contract as
+     * [nu.bacher.memos.ui.edit.MemoEditViewModel.EditError]: the screen owns
+     * the wording, so raw exception messages (Ktor/JVM flavoured, unlocalized)
+     * never reach the UI.
+     */
+    enum class LoginError {
+        URL_NOT_HTTPS,
+        TOKEN_REQUIRED,
+        NETWORK,
+        /** Reached the server; it rejected the token. */
+        AUTH,
+        BUSY,
+        SERVER,
+        GENERIC,
+    }
+
     data class State(
         val serverUrl: String = "",
         val token: String = "",
         val loading: Boolean = false,
-        val error: String? = null,
+        val error: LoginError? = null,
     )
 
     private val _state = MutableStateFlow(State())
@@ -41,11 +60,11 @@ class LoginViewModel(
         }
 
         if (!url.startsWith("https://")) {
-            _state.update { it.copy(error = "URL must start with https:// — plain http is not supported") }
+            _state.update { it.copy(error = LoginError.URL_NOT_HTTPS) }
             return
         }
         if (token.isBlank()) {
-            _state.update { it.copy(error = "Token is required") }
+            _state.update { it.copy(error = LoginError.TOKEN_REQUIRED) }
             return
         }
 
@@ -61,10 +80,16 @@ class LoginViewModel(
                     onSuccess()
                 }
                 .onFailure { t ->
-                    _state.update {
-                        it.copy(loading = false, error = t.message ?: "Connection failed")
-                    }
+                    _state.update { it.copy(loading = false, error = t.toLoginError()) }
                 }
         }
+    }
+
+    private fun Throwable.toLoginError(): LoginError = when (classify()) {
+        ErrorKind.NETWORK -> LoginError.NETWORK
+        ErrorKind.AUTH -> LoginError.AUTH
+        ErrorKind.RATE_LIMIT -> LoginError.BUSY
+        ErrorKind.SERVER -> LoginError.SERVER
+        ErrorKind.OTHER -> LoginError.GENERIC
     }
 }

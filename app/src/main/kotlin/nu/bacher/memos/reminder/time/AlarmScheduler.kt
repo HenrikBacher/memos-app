@@ -4,7 +4,6 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 import androidx.core.content.getSystemService
 
@@ -25,9 +24,7 @@ class AlarmScheduler(private val context: Context) : ReminderScheduler {
     private val alarmManager = context.getSystemService<AlarmManager>()!!
 
     override fun schedule(memoName: String, triggerAtEpochMs: Long, requestCode: Int) {
-        val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            alarmManager.canScheduleExactAlarms()
-        } else true
+        val canExact = alarmManager.canScheduleExactAlarms()
 
         val pi = buildPendingIntent(memoName, requestCode)
         if (canExact) {

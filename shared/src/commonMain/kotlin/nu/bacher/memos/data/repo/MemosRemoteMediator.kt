@@ -25,8 +25,9 @@ import nu.bacher.memos.util.currentTimeMillis
  * death loses the token — but Paging triggers a REFRESH on the next attach
  * anyway, so that's fine.
  *
- * REFRESH clears the table inside [MemoDao.replaceAll]'s transaction so the
- * UI never sees an empty intermediate state. APPEND extends the existing
+ * REFRESH swaps the server-backed rows inside [MemoDao.replaceAll]'s
+ * transaction so the UI never sees an empty intermediate state; unsynced
+ * temp rows survive it (see that method). APPEND extends the existing
  * [MemoEntity.orderInList] sequence so the DAO's ORDER BY stays stable.
  */
 @OptIn(ExperimentalPagingApi::class)
@@ -67,8 +68,11 @@ class MemosRemoteMediator(
             val now = currentTimeMillis()
 
             if (loadType == LoadType.REFRESH) {
+                // replaceAll assigns orderInList itself (it has to offset past
+                // the surviving temp rows), so the value passed here is moot.
                 dao.replaceAll(
-                    response.memos.mapIndexed { i, dto -> dto.toEntity(i, now) },
+                    memos = response.memos.map { it.toEntity(orderInList = 0, cachedAtEpochMs = now) },
+                    tempPrefix = MemoRepository.TEMP_NAME_PREFIX,
                 )
             } else {
                 dao.appendAll(response.memos.map { it.toEntity(orderInList = 0, cachedAtEpochMs = now) })

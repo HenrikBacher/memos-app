@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.api.AttachmentDto
+import nu.bacher.memos.data.api.AttachmentSource
 import nu.bacher.memos.data.api.memoUid
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.ReminderEntity
@@ -27,7 +28,21 @@ class MemoEditViewModel(
      * User-facing error buckets. The screen maps these to localized strings —
      * raw exception messages (Ktor/JVM flavored) never reach the UI.
      */
-    enum class EditError { NETWORK, AUTH, FILE_TOO_LARGE, GENERIC }
+    enum class EditError {
+        NETWORK,
+        AUTH,
+        /** Server is rate-limiting us — worth retrying shortly, unlike [GENERIC]. */
+        BUSY,
+        FILE_TOO_LARGE,
+
+        /**
+         * An attachment upload failed because the network was down. Distinct
+         * from [NETWORK] because text memos queue for replay offline and
+         * attachments don't — the message has to tell the user that.
+         */
+        ATTACHMENT_OFFLINE,
+        GENERIC,
+    }
 
     data class State(
         val memoName: String? = null,
@@ -114,6 +129,7 @@ class MemoEditViewModel(
     private fun Throwable.toEditError(): EditError = when (classify()) {
         ErrorKind.NETWORK -> EditError.NETWORK
         ErrorKind.AUTH -> EditError.AUTH
+        ErrorKind.RATE_LIMIT -> EditError.BUSY
         ErrorKind.SERVER, ErrorKind.OTHER -> EditError.GENERIC
     }
 
@@ -139,27 +155,37 @@ class MemoEditViewModel(
         _state.update { it.copy(visibility = visibility) }
     }
 
-    fun addAttachment(bytes: ByteArray, filename: String, type: String) {
-        if (bytes.size > MAX_ATTACHMENT_BYTES) {
+    /**
+     * Streams [source] to the server and appends the resulting attachment.
+     * The size gate runs against the *declared* size before anything is read,
+     * so an oversized pick costs nothing.
+     *
+     * Unlike memo writes, this has no offline queue: the bytes live behind a
+     * `content://` URI we have no durable claim on, so there's nothing safe to
+     * replay later. A network failure here reports [EditError.ATTACHMENT_OFFLINE]
+     * rather than pretending the upload is pending.
+     */
+    fun addAttachment(source: AttachmentSource) {
+        if (source.byteCount > MAX_ATTACHMENT_BYTES) {
             _state.update { it.copy(error = EditError.FILE_TOO_LARGE) }
             return
         }
         viewModelScope.launch {
             _state.update { it.copy(uploading = true, error = null) }
             runCatching {
-                memoRepo.uploadAttachment(
-                    bytes = bytes,
-                    filename = filename,
-                    type = type,
-                    memoName = _state.value.memoName,
-                )
+                memoRepo.uploadAttachment(source = source, memoName = _state.value.memoName)
             }.fold(
                 onSuccess = { attachment ->
                     _state.update { it.copy(uploading = false, attachments = it.attachments + attachment) }
                 },
                 onFailure = { t ->
                     if (t is CancellationException) throw t
-                    _state.update { it.copy(uploading = false, error = t.toEditError()) }
+                    val error = if (t.classify() == ErrorKind.NETWORK) {
+                        EditError.ATTACHMENT_OFFLINE
+                    } else {
+                        t.toEditError()
+                    }
+                    _state.update { it.copy(uploading = false, error = error) }
                 },
             )
         }
@@ -270,6 +296,6 @@ class MemoEditViewModel(
         val ALL_VISIBILITIES = listOf(VISIBILITY_PRIVATE, VISIBILITY_PROTECTED, VISIBILITY_PUBLIC)
 
         /** 20 MB — base64 JSON encoding inflates this ~33% on the wire. */
-        const val MAX_ATTACHMENT_BYTES: Int = 20 * 1024 * 1024
+        const val MAX_ATTACHMENT_BYTES: Long = 20L * 1024 * 1024
     }
 }

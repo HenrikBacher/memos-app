@@ -13,8 +13,10 @@ import nu.bacher.memos.MainActivity
 import nu.bacher.memos.R
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.repo.MemoRepository
+import nu.bacher.memos.data.repo.ErrorKind
+import nu.bacher.memos.data.repo.classify
 import nu.bacher.memos.ui.edit.MemoEditViewModel
-import nu.bacher.memos.ui.edit.readPickedFile
+import nu.bacher.memos.ui.edit.attachmentSourceFor
 import org.koin.android.ext.android.inject
 
 /**
@@ -64,21 +66,28 @@ class ShareReceiverActivity : ComponentActivity() {
         lifecycleScope.launch {
             val msg = try {
                 val attachments = streams.map { uri ->
-                    val picked = readPickedFile(this@ShareReceiverActivity, uri)
+                    val source = attachmentSourceFor(this@ShareReceiverActivity, uri)
                         ?: error("could not read shared stream $uri")
-                    check(picked.bytes.size <= MemoEditViewModel.MAX_ATTACHMENT_BYTES) {
+                    check(source.byteCount <= MemoEditViewModel.MAX_ATTACHMENT_BYTES) {
                         "shared file exceeds attachment size limit"
                     }
-                    memoRepo.uploadAttachment(picked.bytes, picked.filename, picked.mimeType)
+                    memoRepo.uploadAttachment(source)
                 }
                 memoRepo.create(content, attachments = attachments)
                 R.string.share_saved
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                R.string.share_failed
+            } catch (t: Exception) {
+                // A text-only share still queues offline via create(); an
+                // attachment share can't, so say which failure this was
+                // instead of a blanket "couldn't save".
+                if (streams.isNotEmpty() && t.classify() == ErrorKind.NETWORK) {
+                    R.string.share_failed_attachment_offline
+                } else {
+                    R.string.share_failed
+                }
             }
-            Toast.makeText(this@ShareReceiverActivity, getString(msg), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@ShareReceiverActivity, getString(msg), Toast.LENGTH_LONG).show()
             finish()
         }
     }

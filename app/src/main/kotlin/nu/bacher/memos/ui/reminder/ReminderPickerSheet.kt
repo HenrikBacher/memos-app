@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -137,7 +136,7 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
      * logic only lives in one place.
      */
     fun pick(epoch: Long) {
-        if (!notifGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (!notifGranted) {
             pendingEpoch = epoch
             notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             return
@@ -176,13 +175,7 @@ private fun TimeReminderForm(initialEpochMs: Long?, onPick: (Long) -> Unit) {
         if (!notifGranted) {
             PermissionRow(
                 message = stringResource(R.string.reminder_perm_notifications),
-                action = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        openAppNotificationSettings(context)
-                    }
-                },
+                action = { notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) },
             )
         }
         if (!exactAlarmsGranted) {
@@ -328,29 +321,17 @@ private fun currentlySelectedInstant(date: Long?, hour: Int, minute: Int): Long?
         LocalDateTime(localDate, LocalTime(hour, minute)).toInstant(tz).toEpochMilliseconds()
     }
 
-private fun hasNotificationPermission(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
-    return ContextCompat.checkSelfPermission(
+private fun hasNotificationPermission(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(
         context, Manifest.permission.POST_NOTIFICATIONS,
     ) == PackageManager.PERMISSION_GRANTED
-}
 
 private fun canScheduleExactAlarms(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
     val am = context.getSystemService<AlarmManager>() ?: return false
     return am.canScheduleExactAlarms()
 }
 
-private fun openAppNotificationSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-    }
-    context.startActivity(intent)
-}
-
 private fun openExactAlarmSettings(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
     val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
         data = Uri.parse("package:${context.packageName}")
         flags = Intent.FLAG_ACTIVITY_NEW_TASK

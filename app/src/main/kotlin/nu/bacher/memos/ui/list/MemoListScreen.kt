@@ -34,13 +34,16 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -129,6 +132,7 @@ fun MemoListScreen(
             when {
                 inSelectionMode -> SelectionTopBar(
                     count = selectedNames.size,
+                    showingArchived = state.showArchived,
                     onClear = { vm.clearSelection() },
                     // Edit is only meaningful for exactly one selection; the
                     // bar hides the icon otherwise so the user isn't tempted
@@ -139,7 +143,10 @@ fun MemoListScreen(
                             vm.clearSelection()
                         }
                     },
-                    onArchive = { vm.archiveSelected() },
+                    onTogglePin = { vm.togglePinSelected() },
+                    onArchive = {
+                        if (state.showArchived) vm.unarchiveSelected() else vm.archiveSelected()
+                    },
                     onDelete = { showDeleteConfirm = true },
                 )
                 searchOpen -> SearchTopBar(
@@ -151,7 +158,14 @@ fun MemoListScreen(
                     },
                 )
                 else -> TopAppBar(
-                    title = { Text(stringResource(R.string.list_title)) },
+                    title = {
+                        Text(
+                            stringResource(
+                                if (state.showArchived) R.string.list_title_archived
+                                else R.string.list_title,
+                            ),
+                        )
+                    },
                     scrollBehavior = scrollBehavior,
                     actions = {
                         IconButton(onClick = { searchOpen = true }) {
@@ -173,6 +187,28 @@ fun MemoListScreen(
                                 onDismissRequest = { menuOpen = false },
                             ) {
                                 DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            stringResource(
+                                                if (state.showArchived) R.string.list_show_active
+                                                else R.string.list_show_archived,
+                                            ),
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            if (state.showArchived) Icons.Filled.Unarchive
+                                            else Icons.Filled.Archive,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        vm.setShowArchived(!state.showArchived)
+                                    },
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
                                     text = { Text(stringResource(R.string.list_settings)) },
                                     onClick = {
                                         menuOpen = false
@@ -186,11 +222,15 @@ fun MemoListScreen(
             }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onCreateMemo,
-                icon = { Icon(Icons.Filled.Add, null) },
-                text = { Text(stringResource(R.string.list_fab_new)) },
-            )
+            // Nothing to create *into* the archive — hide the FAB there rather
+            // than have it silently drop a new memo into the other view.
+            if (!state.showArchived) {
+                ExtendedFloatingActionButton(
+                    onClick = onCreateMemo,
+                    icon = { Icon(Icons.Filled.Add, null) },
+                    text = { Text(stringResource(R.string.list_fab_new)) },
+                )
+            }
         },
     ) { padding ->
         Column(
@@ -205,6 +245,11 @@ fun MemoListScreen(
                     onSelect = vm::setSelectedTag,
                 )
             }
+            if (state.searchOffline) {
+                // Cached search results are necessarily partial — say so
+                // rather than let them read as the whole truth.
+                OfflineSearchNotice()
+            }
             val refreshing = pagingItems.loadState.refresh is LoadState.Loading
             PullToRefreshBox(
                 isRefreshing = refreshing,
@@ -216,6 +261,7 @@ fun MemoListScreen(
                     layout = state.layout,
                     query = state.query,
                     selectedTag = state.selectedTag,
+                    showingArchived = state.showArchived,
                     selectedNames = selectedNames,
                     onOpenMemo = { name ->
                         // In selection mode, tap toggles selection rather
@@ -278,8 +324,10 @@ fun MemoListScreen(
 @Composable
 private fun SelectionTopBar(
     count: Int,
+    showingArchived: Boolean,
     onClear: () -> Unit,
     onEdit: (() -> Unit)?,
+    onTogglePin: () -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -304,10 +352,23 @@ private fun SelectionTopBar(
                     )
                 }
             }
+            // Pinning is a server-side ordering concern that only makes sense
+            // for active memos.
+            if (!showingArchived) {
+                IconButton(onClick = onTogglePin) {
+                    Icon(
+                        Icons.Filled.PushPin,
+                        contentDescription = stringResource(R.string.list_selection_pin),
+                    )
+                }
+            }
             IconButton(onClick = onArchive) {
                 Icon(
-                    Icons.Filled.Archive,
-                    contentDescription = stringResource(R.string.list_selection_archive),
+                    if (showingArchived) Icons.Filled.Unarchive else Icons.Filled.Archive,
+                    contentDescription = stringResource(
+                        if (showingArchived) R.string.list_selection_unarchive
+                        else R.string.list_selection_archive,
+                    ),
                 )
             }
             IconButton(onClick = onDelete) {
@@ -405,6 +466,7 @@ private fun MemoResultsBody(
     layout: MemoLayout,
     query: String,
     selectedTag: String?,
+    showingArchived: Boolean,
     selectedNames: Set<String>,
     onOpenMemo: (String) -> Unit,
     onLongPressMemo: (String) -> Unit,
@@ -424,6 +486,7 @@ private fun MemoResultsBody(
                 val msg = when {
                     errorState != null -> stringResource(friendlyErrorMessage(errorState.error))
                     isFiltered -> stringResource(R.string.list_empty_filtered)
+                    showingArchived -> stringResource(R.string.list_empty_archived)
                     else -> stringResource(R.string.list_empty)
                 }
                 Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -495,6 +558,7 @@ private fun RowMemoCard(
         attachments = row.memo.attachments,
         reminder = row.reminder,
         pendingSync = row.pendingSync,
+        pinned = row.memo.pinned,
         selected = row.memo.name in selectedNames,
         onClick = { onOpenMemo(row.memo.name) },
         onLongClick = { onLongPressMemo(row.memo.name) },
@@ -536,6 +600,7 @@ private fun MemoCard(
     attachments: List<AttachmentDto>,
     reminder: ReminderEntity?,
     pendingSync: Boolean,
+    pinned: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -558,6 +623,23 @@ private fun MemoCard(
         },
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            if (pinned) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.PushPin,
+                        contentDescription = stringResource(R.string.list_pinned),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        stringResource(R.string.list_pinned),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
             if (pendingSync) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -656,13 +738,38 @@ private fun MemoCard(
     }
 }
 
+/** Banner shown when search results came out of the cache, not the server. */
+@Composable
+private fun OfflineSearchNotice() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Icon(
+            Icons.Filled.CloudOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+        Text(
+            stringResource(R.string.list_search_offline),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
 /**
  * Maps a paging error to a user-facing string resource. We hide the raw
  * exception message (often a Ktor/JVM stack-trace flavored string) and bucket
- * by whether the failure is network, auth, or anything else.
+ * by whether the failure is network, auth, rate-limiting, or anything else.
  */
 private fun friendlyErrorMessage(t: Throwable): Int = when (t.classify()) {
     ErrorKind.NETWORK -> R.string.list_error_network
     ErrorKind.AUTH -> R.string.list_error_auth
+    ErrorKind.RATE_LIMIT -> R.string.list_error_busy
     ErrorKind.SERVER, ErrorKind.OTHER -> R.string.list_error_generic
 }

@@ -7,6 +7,7 @@ import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,11 +18,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.api.MemoDto
+import nu.bacher.memos.data.db.MemoDao
 import nu.bacher.memos.data.db.ReminderEntity
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
@@ -40,13 +43,17 @@ import nu.bacher.memos.data.settings.MemoLayout
  * chip set is always derived from the cached memos so it stays meaningful
  * regardless of which mode is active (and the selected tag is folded into
  * the server filter when searching).
+ *
+ * Orthogonal to both is [State.showArchived], which flips the cached path
+ * between active and archived memos. Search deliberately ignores it and keeps
+ * spanning both — an explicit query is how you find an old archived note.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, FlowPreview::class)
 class MemoListViewModel(
     private val memoRepo: MemoRepository,
     private val reminderRepo: ReminderRepository,
     private val layoutPreferences: LayoutPreferences,
-    private val memoDao: nu.bacher.memos.data.db.MemoDao,
+    private val memoDao: MemoDao,
 ) : ViewModel() {
 
     data class Row(
@@ -60,10 +67,15 @@ class MemoListViewModel(
         val query: String = "",
         val selectedTag: String? = null,
         val layout: MemoLayout = MemoLayout.GRID,
+        /** Cached path shows archived memos instead of active ones. */
+        val showArchived: Boolean = false,
+        /** Search results came from the cache because the server was unreachable. */
+        val searchOffline: Boolean = false,
     )
 
     private val query = MutableStateFlow("")
     private val selectedTag = MutableStateFlow<String?>(null)
+    private val showArchived = MutableStateFlow(false)
     private val _selectedNames = MutableStateFlow<Set<String>>(emptySet())
 
     /**
@@ -97,19 +109,27 @@ class MemoListViewModel(
             .distinct()
             .sortedBy { it.lowercase() }
             .toList()
-    }.distinctUntilChanged()
+    }
+        // Room emits on its own dispatcher but the map runs in the collector's
+        // context — without this the regex sweep over every cached memo's
+        // content would run on the main thread, on every cache write.
+        .flowOn(Dispatchers.Default)
+        .distinctUntilChanged()
 
-    val state: kotlinx.coroutines.flow.StateFlow<State> = combine(
+    val state: StateFlow<State> = combine(
         query,
         selectedTag,
         cachedTags,
         layoutPreferences.layoutFlow,
-    ) { q, tag, allTags, layout ->
+        combine(showArchived, memoRepo.searchServedFromCache, ::Pair),
+    ) { q, tag, allTags, layout, (archived, searchOffline) ->
         State(
             tags = allTags,
             query = q,
             selectedTag = tag.takeIf { it == null || it in allTags },
             layout = layout,
+            showArchived = archived,
+            searchOffline = searchOffline && q.isNotBlank(),
         )
     }.stateIn(
         viewModelScope,
@@ -133,17 +153,24 @@ class MemoListViewModel(
      * changes.
      */
     val memos: Flow<PagingData<Row>> =
-        combine(debouncedQuery, selectedTag, reminderMap, pendingNames) { q, tag, reminders, pending ->
-            Quad(q, tag, reminders, pending)
-        }.flatMapLatest { (q, tag, reminders, pending) ->
+        combine(
+            debouncedQuery,
+            selectedTag,
+            reminderMap,
+            pendingNames,
+            showArchived,
+        ) { q, tag, reminders, pending, archived ->
+            Inputs(q, tag, reminders, pending, archived)
+        }.flatMapLatest { (q, tag, reminders, pending, archived) ->
             val source: Flow<PagingData<MemoDto>> = if (q.isBlank()) {
                 // Cached path — server doesn't know about [tag], so apply it
-                // client-side over loaded pages. Archived memos are filtered
-                // here too so the main list stays focused on active memos
-                // (search results still surface archived; that's intentional
+                // client-side over loaded pages. The archived split happens
+                // here too (search results still span both; that's intentional
                 // — explicit search is the way to find old archived notes).
                 memoRepo.memosPagingData.map { paging ->
-                    paging.filter { memo -> memo.state != STATE_ARCHIVED && tagMatches(memo, tag) }
+                    paging.filter { memo ->
+                        (memo.state == STATE_ARCHIVED) == archived && tagMatches(memo, tag)
+                    }
                 }
             } else {
                 // Server-side search. Tag is sent in the filter so the
@@ -190,6 +217,18 @@ class MemoListViewModel(
         selectedTag.value = tag
     }
 
+    /**
+     * Switches the cached list between active and archived memos. Clears any
+     * live selection — the available bulk actions differ between the two
+     * views, so carrying a selection across would leave the top bar offering
+     * "Archive" on already-archived memos.
+     */
+    fun setShowArchived(show: Boolean) {
+        if (showArchived.value == show) return
+        _selectedNames.value = emptySet()
+        showArchived.value = show
+    }
+
     fun setLayout(layout: MemoLayout) {
         layoutPreferences.setLayout(layout)
     }
@@ -233,21 +272,50 @@ class MemoListViewModel(
      * server to archive yet, and the user would have to wait for the create
      * to flush before archiving meaningfully.
      */
-    fun archiveSelected() {
+    fun archiveSelected() = setStateOnSelection(STATE_ARCHIVED)
+
+    /** Restores every selected memo to the active list. */
+    fun unarchiveSelected() = setStateOnSelection(STATE_NORMAL)
+
+    private fun setStateOnSelection(state: String) {
         val names = _selectedNames.value.filterNot { it.startsWith(MemoRepository.TEMP_NAME_PREFIX) }
-        if (names.isEmpty()) {
-            _selectedNames.value = emptySet()
-            return
-        }
         _selectedNames.value = emptySet()
+        if (names.isEmpty()) return
         viewModelScope.launch {
             for (name in names) {
                 try {
-                    memoRepo.setState(name, STATE_ARCHIVED)
+                    memoRepo.setState(name, state)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
                     // Optimistic state change already applied; sync queue will retry.
+                }
+            }
+        }
+    }
+
+    /**
+     * Pins the selected memos, or unpins them when they're *all* already
+     * pinned — one button that does the obvious thing either way. Pinned state
+     * is read from the cache rather than tracked alongside the selection so
+     * this stays correct after a refresh reorders things underneath.
+     *
+     * Temp memos are skipped: memos' create API carries no `pinned` field, so
+     * there's nothing to pin until the queued CREATE lands.
+     */
+    fun togglePinSelected() {
+        val names = _selectedNames.value.filterNot { it.startsWith(MemoRepository.TEMP_NAME_PREFIX) }
+        _selectedNames.value = emptySet()
+        if (names.isEmpty()) return
+        viewModelScope.launch {
+            val pin = names.any { name -> memoDao.get(name)?.pinned != true }
+            for (name in names) {
+                try {
+                    memoRepo.setPinned(name, pin)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Optimistic pin already applied; sync queue will retry.
                 }
             }
         }
@@ -262,10 +330,17 @@ class MemoListViewModel(
     private companion object {
         const val SEARCH_DEBOUNCE_MS = 300L
         const val STATE_ARCHIVED = "ARCHIVED"
+        const val STATE_NORMAL = "NORMAL"
     }
 
-    /** Local 4-tuple — Kotlin has no built-in Quadruple. */
-    private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+    /** Everything the paging stream rebuilds on. Kotlin has no 5-tuple. */
+    private data class Inputs(
+        val query: String,
+        val tag: String?,
+        val reminders: Map<String, ReminderEntity>,
+        val pending: Set<String>,
+        val archived: Boolean,
+    )
 }
 
 private val TAG_REGEX = Regex("""(?<![\w/])#([\p{L}\p{N}_\-/]+)""")

@@ -11,13 +11,15 @@ import io.ktor.client.request.parameter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map as mapFlow
 import kotlinx.coroutines.withContext
-import kotlinx.io.Buffer
-import kotlinx.io.RawSource
 import kotlinx.serialization.builtins.serializer
 import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.api.AttachmentRef
+import nu.bacher.memos.data.api.AttachmentSource
 import nu.bacher.memos.data.api.CreateMemoRequest
 import nu.bacher.memos.data.api.MemoDto
 import nu.bacher.memos.data.api.MemosApi
@@ -60,6 +62,18 @@ class MemoRepository(
     val pendingNames: Flow<Set<String>>
         get() = pendingActionDao.observePendingNames().mapFlow { it.toSet() }
 
+    private val _searchServedFromCache = MutableStateFlow(false)
+
+    /**
+     * True when the most recent search page was answered from the local cache
+     * because the server was unreachable — the list screen shows an "offline,
+     * cached results" notice off this.
+     *
+     * Single-consumer by construction: one list screen drives search at a
+     * time. Reset when a new search Pager is built, set by the fallback.
+     */
+    val searchServedFromCache: StateFlow<Boolean> = _searchServedFromCache.asStateFlow()
+
     // Match initialLoadSize to one server page so the first network call
     // delivers a full screen without the mediator immediately issuing an APPEND.
     private val pagingConfig = PagingConfig(
@@ -92,12 +106,31 @@ class MemoRepository(
      * Older self-hosted servers without `content_search` will throw on the
      * filter — the paging stream surfaces that as an error and the user
      * recovers by clearing the query.
+     *
+     * When the server can't be reached at all, the first page falls back to a
+     * LIKE scan of the cache instead of erroring out, so search still works on
+     * a plane. Cached results are necessarily partial (the cache only holds
+     * pages already loaded) — [searchServedFromCache] tells the UI to say so.
      */
     fun searchMemosPagingData(query: String, tag: String? = null): Flow<PagingData<MemoDto>> {
         val filter = buildSearchFilter(query, tag)
+        _searchServedFromCache.value = false
         return Pager(
             config = pagingConfig,
-            pagingSourceFactory = { MemoApiPagingSource(api, filter) },
+            pagingSourceFactory = {
+                MemoApiPagingSource(
+                    api = api,
+                    filter = filter,
+                    offlineFallback = {
+                        dao.searchCached(
+                            query = escapeLike(query.trim()),
+                            tag = tag?.takeIf { it.isNotBlank() }?.let(::escapeLike),
+                            limit = CACHED_SEARCH_LIMIT,
+                        ).map { it.toDto() }
+                            .also { _searchServedFromCache.value = true }
+                    },
+                )
+            },
         ).flow
     }
 
@@ -190,10 +223,11 @@ class MemoRepository(
         content: String? = null,
         visibility: String? = null,
         state: String? = null,
+        pinned: Boolean? = null,
         attachments: List<AttachmentDto>? = null,
     ): MemoDto {
         if (name.startsWith(TEMP_NAME_PREFIX)) {
-            return mergeIntoPendingCreate(name, content, visibility, state, attachments)
+            return mergeIntoPendingCreate(name, content, visibility, state, pinned, attachments)
         }
         val prior = dao.get(name)
             ?: error("update($name): no cached entity to update")
@@ -202,6 +236,7 @@ class MemoRepository(
             content = content ?: prior.content,
             visibility = visibility ?: prior.visibility,
             state = state ?: prior.state,
+            pinned = pinned ?: prior.pinned,
             attachmentsJson = attachments?.let { encodeAttachments(it) } ?: prior.attachmentsJson,
             cachedAtEpochMs = now,
         )
@@ -213,6 +248,7 @@ class MemoRepository(
                     content = content,
                     visibility = visibility,
                     state = state,
+                    pinned = pinned,
                     attachments = attachments?.map { AttachmentRef(name = it.name) },
                 ),
             )
@@ -223,7 +259,7 @@ class MemoRepository(
         } catch (t: Throwable) {
             if (t.isRetriable()) {
                 withContext(NonCancellable) {
-                    enqueuePendingUpdate(name, content, visibility, state, attachments)
+                    enqueuePendingUpdate(name, content, visibility, state, pinned, attachments)
                 }
                 optimistic.toDto()
             } else {
@@ -241,27 +277,34 @@ class MemoRepository(
     suspend fun setState(name: String, state: String): MemoDto = update(name = name, state = state)
 
     /**
-     * Uploads [bytes] as an attachment. When [memoName] is non-null the server
+     * Convenience wrapper for pin-only edits. Like [setState], pinning a
+     * temp-named memo only sticks locally until the queued CREATE lands —
+     * memos' CreateMemoRequest carries no `pinned` field.
+     */
+    suspend fun setPinned(name: String, pinned: Boolean): MemoDto =
+        update(name = name, pinned = pinned)
+
+    /**
+     * Uploads [source] as an attachment. When [memoName] is non-null the server
      * links the attachment to that memo immediately; for new memos pass null
      * here and reference the returned attachment by name in the next
      * [create] call.
      *
-     * The bytes are streamed through a base64-encoding JSON envelope rather
-     * than being base64+JSON-encoded into intermediate strings (see
-     * StreamingAttachmentContent). For a 20 MB file that's the difference
-     * between a ~85 MB peak and a ~21 MB peak.
+     * The file is streamed through a base64-encoding JSON envelope and never
+     * materialised (see [nu.bacher.memos.data.api.StreamingAttachmentContent]).
+     * Taking an [AttachmentSource] rather than a ByteArray is what makes that
+     * true end-to-end: a 20 MB upload now peaks at the ~85 KiB chunk buffer
+     * instead of the file itself.
      */
     suspend fun uploadAttachment(
-        bytes: ByteArray,
-        filename: String,
-        type: String,
+        source: AttachmentSource,
         memoName: String? = null,
     ): AttachmentDto = api.createAttachment(
-        filename = filename,
-        type = type,
-        byteCount = bytes.size.toLong(),
+        filename = source.filename,
+        type = source.mimeType,
+        byteCount = source.byteCount,
         memo = memoName,
-        openSource = { ByteArrayRawSource(bytes) },
+        openSource = source.openSource,
     )
 
     /**
@@ -317,8 +360,10 @@ class MemoRepository(
      * gets picked up by the next sync.
      */
     suspend fun syncPending() {
-        reconcileOrphanTempCreates()
-        val actions = pendingActionDao.getAll()
+        val queued = pendingActionDao.getAll()
+        // Re-read only if the sweep actually enqueued something; the common
+        // case costs one query, not two.
+        val actions = if (reconcileOrphanTempCreates(queued)) pendingActionDao.getAll() else queued
         if (actions.isEmpty()) return
 
         for (action in actions) {
@@ -372,19 +417,17 @@ class MemoRepository(
      * in-flight [create] (temp row inserted, API call still running, nothing
      * enqueued yet) into a duplicate CREATE.
      */
-    private suspend fun reconcileOrphanTempCreates() {
-        val queuedNames = pendingActionDao.getAll().mapTo(mutableSetOf()) { it.memoName }
+    private suspend fun reconcileOrphanTempCreates(queued: List<PendingActionEntity>): Boolean {
+        val queuedNames = queued.mapTo(mutableSetOf()) { it.memoName }
         val cutoff = currentTimeMillis() - ORPHAN_MIN_AGE_MS
-        val orphans = dao.getAll().filter { row ->
-            row.name.startsWith(TEMP_NAME_PREFIX) &&
-                row.name !in queuedNames &&
-                row.cachedAtEpochMs < cutoff
-        }
+        val orphans = dao.tempRowsOlderThan(TEMP_NAME_PREFIX, cutoff)
+            .filter { it.name !in queuedNames }
         for (row in orphans) {
             val attachments = if (row.attachmentsJson.isEmpty()) emptyList()
             else MemosJson.decodeFromString(AttachmentListSerializer, row.attachmentsJson)
             enqueuePendingCreate(row.name, row.content, row.visibility, attachments)
         }
+        return orphans.isNotEmpty()
     }
 
     private suspend fun applyPending(action: PendingActionEntity, type: PendingActionType) {
@@ -418,6 +461,7 @@ class MemoRepository(
                         content = payload.content,
                         visibility = payload.visibility,
                         state = payload.state,
+                        pinned = payload.pinned,
                         attachments = payload.attachmentNames?.map { AttachmentRef(name = it) },
                     ),
                 )
@@ -461,6 +505,7 @@ class MemoRepository(
         content: String?,
         visibility: String?,
         state: String?,
+        pinned: Boolean?,
         attachments: List<AttachmentDto>?,
     ) {
         // Collapse repeated UPDATEs on the same memo: merge the prior queued
@@ -476,6 +521,7 @@ class MemoRepository(
             content = content ?: prior?.content,
             visibility = visibility ?: prior?.visibility,
             state = state ?: prior?.state,
+            pinned = pinned ?: prior?.pinned,
             attachmentNames = attachments?.map { it.name } ?: prior?.attachmentNames,
         )
         pendingActionDao.insert(
@@ -518,6 +564,7 @@ class MemoRepository(
         content: String?,
         visibility: String?,
         state: String?,
+        pinned: Boolean?,
         attachments: List<AttachmentDto>?,
     ): MemoDto {
         val prior = dao.get(tempName)
@@ -533,16 +580,18 @@ class MemoRepository(
             content = newContent,
             visibility = newVisibility,
             state = newState,
+            pinned = pinned ?: prior.pinned,
             attachmentsJson = encodeAttachments(newAttachments),
             cachedAtEpochMs = currentTimeMillis(),
         )
         withContext(NonCancellable) {
             dao.upsert(optimistic)
             // Replace the prior pending CREATE payload so the queued action
-            // carries the latest content/visibility/attachments. State is
-            // intentionally not propagated to the CREATE payload — memos'
-            // CreateMemoRequest has no state field, so archiving an unsynced
-            // memo only sticks locally until the create lands.
+            // carries the latest content/visibility/attachments. State and
+            // pinned are intentionally not propagated to the CREATE payload —
+            // memos' CreateMemoRequest has neither field, so archiving or
+            // pinning an unsynced memo only sticks locally until the create
+            // lands.
             pendingActionDao.findFirst(PendingActionType.CREATE.storedValue, tempName)?.let {
                 pendingActionDao.deleteById(it.id)
             }
@@ -586,25 +635,18 @@ class MemoRepository(
         internal const val MAX_SYNC_ATTEMPTS = 5
         /** Minimum temp-row age before the orphan sweep may re-queue it. */
         internal const val ORPHAN_MIN_AGE_MS = 5 * 60_000L
+        /** Cap on rows returned by the offline search fallback. */
+        internal const val CACHED_SEARCH_LIMIT = 200
     }
 }
 
 /**
- * Lets [uploadAttachment] feed an in-memory ByteArray through the streaming
- * upload path without copying it into a [Buffer] first. Each read pulls a
- * chunk-sized slice into the caller's sink — only the chunk is duplicated.
+ * Escapes the LIKE metacharacters in a user-typed search term so `50%` matches
+ * a literal "50%" rather than "50" followed by anything. Pairs with the
+ * `ESCAPE '\'` clause on [MemoDao.searchCached].
  */
-private class ByteArrayRawSource(private val bytes: ByteArray) : RawSource {
-    private var pos = 0
-    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
-        if (pos >= bytes.size) return -1L
-        val n = minOf(byteCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), bytes.size - pos)
-        sink.write(bytes, pos, pos + n)
-        pos += n
-        return n.toLong()
-    }
-    override fun close() {}
-}
+internal fun escapeLike(raw: String): String =
+    raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 private fun encodeAttachments(attachments: List<AttachmentDto>): String =
     if (attachments.isEmpty()) ""

@@ -25,6 +25,8 @@ object PendingPayload {
         val visibility: String? = null,
         /** memos lifecycle: "NORMAL" / "ARCHIVED". Null means "don't touch state". */
         val state: String? = null,
+        /** Null means "don't touch the pinned flag". */
+        val pinned: Boolean? = null,
         /** Null means "don't touch attachments on the server"; empty means "clear them". */
         val attachmentNames: List<String>? = null,
     )

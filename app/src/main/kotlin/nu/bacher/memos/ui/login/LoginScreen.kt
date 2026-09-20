@@ -97,7 +97,7 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error)
+                Text(stringResource(it.messageRes()), color = MaterialTheme.colorScheme.error)
             }
             Spacer(Modifier.height(8.dp))
             Button(
@@ -118,3 +118,16 @@ fun LoginScreen(
     }
 }
 
+/**
+ * Maps the ViewModel's typed error to a localized string. Same contract as
+ * MemoEditScreen's `messageRes` — the screen owns the wording.
+ */
+private fun LoginViewModel.LoginError.messageRes(): Int = when (this) {
+    LoginViewModel.LoginError.URL_NOT_HTTPS -> R.string.login_error_url_https
+    LoginViewModel.LoginError.TOKEN_REQUIRED -> R.string.login_error_token_required
+    LoginViewModel.LoginError.NETWORK -> R.string.login_error_network
+    LoginViewModel.LoginError.AUTH -> R.string.login_error_auth
+    LoginViewModel.LoginError.BUSY -> R.string.login_error_busy
+    LoginViewModel.LoginError.SERVER -> R.string.login_error_server
+    LoginViewModel.LoginError.GENERIC -> R.string.login_error_generic
+}

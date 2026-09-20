@@ -9,6 +9,13 @@
     <string name="login_connect">Connect</string>
     <string name="login_show_token">Show token</string>
     <string name="login_hide_token">Hide token</string>
+    <string name="login_error_url_https">Server URL must start with https://</string>
+    <string name="login_error_token_required">Enter your access token.</string>
+    <string name="login_error_network">Can\'t reach that server. Check the URL and your connection.</string>
+    <string name="login_error_auth">That token was rejected. Check it and try again.</string>
+    <string name="login_error_busy">Server is busy. Try again in a moment.</string>
+    <string name="login_error_server">The server had a problem. Try again shortly.</string>
+    <string name="login_error_generic">Couldn\'t connect. Check the URL and token.</string>
 
     <string name="list_title">Memos</string>
     <string name="list_empty">No memos yet. Tap + to create one.</string>
@@ -16,6 +23,7 @@
     <string name="list_clear_filter">Clear filter</string>
     <string name="list_error_network">Can\'t reach your server. Check your connection and try again.</string>
     <string name="list_error_auth">Your session expired. Sign in again.</string>
+    <string name="list_error_busy">Server is busy. Try again in a moment.</string>
     <string name="list_error_generic">Something went wrong loading memos.</string>
     <string name="list_retry">Retry</string>
     <string name="list_more_options">More options</string>
@@ -50,11 +58,19 @@
     <string name="list_clear_search">Clear search</string>
     <string name="list_close_search">Close search</string>
     <string name="list_tag_all">All</string>
+    <string name="list_title_archived">Archived</string>
+    <string name="list_show_archived">Show archived</string>
+    <string name="list_show_active">Show active memos</string>
+    <string name="list_empty_archived">Nothing archived.</string>
+    <string name="list_pinned">Pinned</string>
+    <string name="list_search_offline">Offline — showing cached results only.</string>
     <string name="list_view_grid">Grid view</string>
     <string name="list_view_list">List view</string>
     <string name="list_selection_clear">Clear selection</string>
     <string name="list_selection_edit">Edit memo</string>
     <string name="list_selection_archive">Archive memos</string>
+    <string name="list_selection_unarchive">Restore memos</string>
+    <string name="list_selection_pin">Pin or unpin memos</string>
     <string name="list_selection_delete">Delete memo</string>
     <string name="list_selection_title_count">%1$d selected</string>
     <string name="list_delete_confirm_title_count">Delete %1$d memos?</string>
@@ -99,7 +115,9 @@
     <string name="edit_error_network">Can\'t reach your server. Check your connection and try again.</string>
     <string name="edit_error_auth">Your session expired. Sign in again.</string>
     <string name="edit_error_generic">Something went wrong. Try again.</string>
+    <string name="edit_error_busy">Server is busy. Try again in a moment.</string>
     <string name="edit_error_file_too_large">File is too large (max 20 MB).</string>
+    <string name="edit_error_attachment_offline">Attachments need a connection — this one wasn\'t uploaded.</string>
 
     <string name="list_sync_pending">Sync pending</string>
 
@@ -134,6 +152,7 @@
     <string name="share_saving">Saving memo…</string>
     <string name="share_saved">Memo saved</string>
     <string name="share_failed">Could not save memo</string>
+    <string name="share_failed_attachment_offline">No connection — attachments can\'t be saved offline</string>
     <string name="share_sign_in_first">Sign in to Memos first, then share again.</string>
 
     <string name="widget_new_memo">New memo</string>
