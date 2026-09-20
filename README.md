@@ -1,6 +1,6 @@
 # Memos Android
 
-Android client for [memos](https://usememos.com) — a self-hosted note-taking server. Sign in with a server URL + access token, then browse, search, write, and archive memos, attach images and video, set time-based reminders, share content in from other apps, and open a quick note from a home-screen widget.
+Android client for [memos](https://usememos.com) — a self-hosted note-taking server. Sign in with a server URL and either an access token or your instance's SSO provider, then browse, search, write, and archive memos, attach images and video, set time-based reminders, share content in from other apps, and open a quick note from a home-screen widget.
 
 ## Features
 
@@ -99,6 +99,20 @@ For Play Publisher uploads, set `ANDROID_PUBLISHER_CREDENTIALS_PATH` to the serv
 
 After `installDebug`, the launcher carries the **Memos** icon. First launch goes to a login screen — enter your memos server URL (e.g. `https://memos.example.com`) and an access token from the memos web UI under *Settings → My Account → Access Tokens*.
 
+#### Signing in with SSO
+
+If your instance has an OAuth2 identity provider configured, **Sign in with SSO** skips the token entirely: the app lists the server's providers, opens the chosen one in an Auth Tab, and turns the result into an access token for you.
+
+One piece of setup is required on the identity provider side — register
+
+```
+nu.bacher.memos://oauth2redirect
+```
+
+as an allowed redirect URI on the same OAuth app your memos instance points at. Without it the provider rejects the request before the app ever sees it.
+
+What the app does with what comes back: memos' SSO sign-in returns a short-lived session token, so the last step of the flow spends that token minting a non-expiring personal access token and stores *that*. It shows up in the web UI's token list as **Memos for Android (SSO)**. Logging out of the app clears it locally but can't revoke it server-side — delete it there if you want it gone.
+
 The app installs as `nu.bacher.memos.debug` (debug builds get a `.debug` suffix), so you can keep it side-by-side with a release build.
 
 ## Tests
@@ -110,6 +124,8 @@ The app installs as `nu.bacher.memos.debug` (debug builds get a `.debug` suffix)
 - `data/repo/OfflineQueueTest.kt` (with `FakePendingActionDao`) — enqueue/replay, poison cap, orphan sweep
 - `data/repo/BuildSearchFilterTest.kt` — search/tag filter construction
 - `data/settings/LayoutPreferencesTest.kt` — settings round-trip
+- `data/auth/PkceTest.kt` — PKCE challenge, pinned to the RFC 7636 Appendix B vector
+- `ui/LoginViewModelSsoTest.kt` — SSO provider discovery, the authorization request, and redirect handling (state mismatch, denied consent, nothing pending)
 - `util/QuickRemindersTest.kt`, `util/ReminderRelativeTest.kt` — reminder presets + relative formatting
 
 Run with `./gradlew :shared:testAndroidHostTest`. New tests go under `shared/src/commonTest/kotlin/` — don't add empty assertion-free scaffolding.

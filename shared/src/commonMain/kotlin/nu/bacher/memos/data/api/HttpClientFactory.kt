@@ -57,16 +57,7 @@ fun buildMemosHttpClient(
     install(DefaultRequest) {
         val config = authStore.read()
             ?: error("Not logged in to memos — open the app and sign in again")
-        val parsed = URLBuilder().takeFrom(config.serverUrl.trimEnd('/'))
-        url {
-            protocol = parsed.protocol
-            host = parsed.host
-            if (parsed.port != URLProtocol.HTTP.defaultPort &&
-                parsed.port != URLProtocol.HTTPS.defaultPort
-            ) {
-                port = parsed.port
-            }
-        }
+        pointAtServer(config.serverUrl)
         header(HttpHeaders.Authorization, "Bearer ${config.token}")
         header(HttpHeaders.Accept, "application/json")
     }
@@ -122,17 +113,44 @@ fun buildVerificationClient(
     followRedirects = false
     install(ContentNegotiation) { json(MemosJson) }
     install(DefaultRequest) {
-        val parsed = URLBuilder().takeFrom(serverUrl.trimEnd('/'))
-        url {
-            protocol = parsed.protocol
-            host = parsed.host
-            if (parsed.port != URLProtocol.HTTP.defaultPort &&
-                parsed.port != URLProtocol.HTTPS.defaultPort
-            ) {
-                port = parsed.port
-            }
-        }
+        pointAtServer(serverUrl)
         header(HttpHeaders.Authorization, "Bearer $token")
         header(HttpHeaders.Accept, "application/json")
+    }
+}
+
+/**
+ * Build a one-shot HttpClient against a specific server with no credentials
+ * attached, for the memos endpoints on the server's unauthenticated
+ * allowlist — `ListIdentityProviders` and the SSO `SignIn`, both of which the
+ * login screen must reach *before* there is any token to store.
+ */
+fun buildPublicClient(
+    engine: HttpClientEngineFactory<*>,
+    serverUrl: String,
+): HttpClient = HttpClient(engine) {
+    expectSuccess = true
+    followRedirects = false
+    install(ContentNegotiation) { json(MemosJson) }
+    install(DefaultRequest) {
+        pointAtServer(serverUrl)
+        header(HttpHeaders.Accept, "application/json")
+    }
+}
+
+/**
+ * Rewrite the request's scheme/host/port to [serverUrl] so call sites pass
+ * bare paths. A non-default port is carried over; 80/443 is left implicit.
+ */
+private fun DefaultRequest.DefaultRequestBuilder.pointAtServer(serverUrl: String) {
+    val parsed = URLBuilder().takeFrom(serverUrl.trimEnd('/'))
+    url {
+        protocol = parsed.protocol
+        host = parsed.host
+        if (parsed.port != URLProtocol.HTTP.defaultPort &&
+            parsed.port != URLProtocol.HTTPS.defaultPort
+        ) {
+            port = parsed.port
+        }
     }
 }
