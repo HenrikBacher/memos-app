@@ -37,11 +37,11 @@ class CacheAndSearchTest {
     @Test
     fun replaceAll_keeps_unsynced_temp_rows() = runTest {
         val dao = FakeMemoDao()
-        val temp = entity("${LocalMemoName.PREFIX}1", order = 0).copy(content = "unsynced")
-        dao.upsertAll(listOf(temp, entity("memos/old", order = 1)))
+        val temp = memoEntity("${LocalMemoName.PREFIX}1", order = 0).copy(content = "unsynced")
+        dao.upsertAll(listOf(temp, memoEntity("memos/old", order = 1)))
 
         dao.replaceAll(
-            memos = listOf(entity("memos/fresh")),
+            memos = listOf(memoEntity("memos/fresh")),
             tempPrefix = LocalMemoName.PREFIX,
             archived = false,
         )
@@ -59,14 +59,14 @@ class CacheAndSearchTest {
         val dao = FakeMemoDao()
         dao.upsertAll(
             listOf(
-                entity("memos/active", order = 0),
-                entity("memos/archived", order = 1).copy(state = MemoState.ARCHIVED),
+                memoEntity("memos/active", order = 0),
+                memoEntity("memos/archived", order = 1).copy(state = MemoState.ARCHIVED),
             ),
         )
 
         // Refreshing the active view must leave archived rows cached.
         dao.replaceAll(
-            memos = listOf(entity("memos/active2")),
+            memos = listOf(memoEntity("memos/active2")),
             tempPrefix = LocalMemoName.PREFIX,
             archived = false,
         )
@@ -76,17 +76,40 @@ class CacheAndSearchTest {
     }
 
     @Test
+    fun refreshing_one_state_does_not_renumber_the_other() = runTest {
+        val dao = FakeMemoDao()
+        dao.upsertAll(
+            listOf(
+                memoEntity("memos/archived-a", order = 0).copy(state = MemoState.ARCHIVED),
+                memoEntity("memos/archived-b", order = 1).copy(state = MemoState.ARCHIVED),
+                memoEntity("memos/active", order = 2),
+            ),
+        )
+
+        dao.replaceAll(
+            memos = listOf(memoEntity("memos/active2")),
+            tempPrefix = LocalMemoName.PREFIX,
+            archived = false,
+        )
+
+        // The archived partition is untouched — same rows, same order. A
+        // refresh that rewrote them would churn the other view's PagingSource
+        // for no reason.
+        assertEquals(0, dao.get("memos/archived-a")!!.orderInList)
+        assertEquals(1, dao.get("memos/archived-b")!!.orderInList)
+    }
+
+    @Test
     fun permanently_rejected_create_flags_its_row_so_the_sweep_cannot_requeue_it() = runTest {
         // 400 on replay: the server will never accept this memo.
         val engine = MockEngine { _ -> respondError(HttpStatusCode.BadRequest) }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         val tempName = "${LocalMemoName.PREFIX}1"
-        // Old enough that the orphan sweep is willing to adopt it.
-        val staleMs = MemoRepository.ORPHAN_MIN_AGE_MS + 1
-        dao.upsertAll(listOf(entity(tempName).copy(content = "doomed", cachedAtEpochMs = 0)))
+        // cachedAtEpochMs = 0 puts it far past the orphan age threshold.
+        dao.upsertAll(listOf(memoEntity(tempName).copy(content = "doomed", cachedAtEpochMs = 0)))
         pending.insert(
             PendingActionEntity(
                 type = PendingActionType.CREATE.storedValue,
@@ -109,7 +132,6 @@ class CacheAndSearchTest {
         // The whole point: a second sync must not resurrect it.
         repo.syncPending()
         assertTrue(pending.rows.isEmpty(), "orphan sweep must not re-enqueue a dropped create")
-        assertTrue(staleMs > 0)
     }
 
     @Test
@@ -117,9 +139,9 @@ class CacheAndSearchTest {
         val dao = FakeMemoDao()
         dao.upsertAll(
             listOf(
-                entity("memos/a", order = 0).copy(content = "buy milk"),
-                entity("memos/b", order = 1).copy(content = "sell bread"),
-                entity("memos/c", order = 2).copy(content = "100% done"),
+                memoEntity("memos/a", order = 0).copy(content = "buy milk"),
+                memoEntity("memos/b", order = 1).copy(content = "sell bread"),
+                memoEntity("memos/c", order = 2).copy(content = "100% done"),
             ),
         )
 
@@ -139,9 +161,9 @@ class CacheAndSearchTest {
         val dao = FakeMemoDao()
         dao.upsertAll(
             listOf(
-                entity("memos/a", order = 0).copy(content = "note one", tagsCsv = "work"),
-                entity("memos/b", order = 1).copy(content = "note two", tagsCsv = "home"),
-                entity("memos/c", order = 2).copy(content = "note three #work"),
+                memoEntity("memos/a", order = 0).copy(content = "note one", tagsCsv = "work"),
+                memoEntity("memos/b", order = 1).copy(content = "note two", tagsCsv = "home"),
+                memoEntity("memos/c", order = 2).copy(content = "note three #work"),
             ),
         )
 
@@ -160,8 +182,8 @@ class CacheAndSearchTest {
             )
         }
         val dao = FakeMemoDao()
-        dao.upsertAll(listOf(entity("memos/x").copy(pinned = false)))
-        val repo = repo(engine, dao)
+        dao.upsertAll(listOf(memoEntity("memos/x").copy(pinned = false)))
+        val repo = testMemoRepository(engine, dao)
 
         val saved = repo.setPinned("memos/x", true)
 
@@ -173,9 +195,9 @@ class CacheAndSearchTest {
     fun setPinned_queues_and_keeps_optimistic_pin_when_offline() = runTest {
         val engine = MockEngine { _ -> respondError(HttpStatusCode.ServiceUnavailable) }
         val dao = FakeMemoDao()
-        dao.upsertAll(listOf(entity("memos/x").copy(pinned = false)))
+        dao.upsertAll(listOf(memoEntity("memos/x").copy(pinned = false)))
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         repo.setPinned("memos/x", true)
 
@@ -190,39 +212,6 @@ class CacheAndSearchTest {
         assertFalse(queued.memoName.isEmpty())
     }
 
-    private fun repo(
-        engine: MockEngine,
-        dao: FakeMemoDao,
-        pendingDao: FakePendingActionDao = FakePendingActionDao(),
-    ): MemoRepository {
-        val client = HttpClient(engine) {
-            expectSuccess = true
-            install(ContentNegotiation) { json(MemosJson) }
-        }
-        return MemoRepository(
-            api = MemosApi(client),
-            dao = dao,
-            pendingActionDao = pendingDao,
-            verifyClientFactory = { _, _ -> fail("verifyCreds is not exercised here") },
-        )
-    }
 
-    private fun jsonHeaders() = headersOf(HttpHeaders.ContentType, "application/json")
 
-    private fun entity(name: String, order: Int = 0) = MemoEntity(
-        name = name,
-        uid = null,
-        content = "",
-        visibility = "PRIVATE",
-        state = null,
-        pinned = false,
-        createTime = null,
-        updateTime = null,
-        displayTime = null,
-        creator = null,
-        tagsCsv = "",
-        attachmentsJson = "",
-        orderInList = order,
-        cachedAtEpochMs = 0,
-    )
 }

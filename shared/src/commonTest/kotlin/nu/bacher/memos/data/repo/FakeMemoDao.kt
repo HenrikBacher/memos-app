@@ -56,6 +56,11 @@ class FakeMemoDao : MemoDao {
             }
             .sortedBy { it.orderInList }
 
+    override suspend fun keptTempRows(tempPrefix: String, archived: Boolean): List<MemoEntity> =
+        state.value
+            .filter { it.name.startsWith(tempPrefix) && it.isArchived() == archived }
+            .sortedBy { it.orderInList }
+
     override fun observeSyncFailedNames(): Flow<List<String>> =
         state.map { rows -> rows.filter { it.syncFailed }.map { it.name } }
 

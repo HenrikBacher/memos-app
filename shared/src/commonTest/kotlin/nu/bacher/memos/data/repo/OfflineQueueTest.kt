@@ -39,7 +39,7 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         // Should NOT throw — retriable failures preserve the user's edit.
         val result = repo.create("hello world")
@@ -68,7 +68,7 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         repo.create("hello")
         assertEquals(1, pending.rows.size, "create should have queued one action")
@@ -93,7 +93,7 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         repo.create("hello")
         repo.syncPending()
@@ -115,7 +115,7 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         repo.create("hello")
         assertEquals(1, pending.rows.size)
@@ -139,7 +139,7 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         repo.create("hello")
         assertEquals(1, pending.rows.size)
@@ -167,7 +167,7 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         repo.create("hello")
         assertEquals(1, pending.rows.size)
@@ -192,10 +192,10 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
         val tempName = "${LocalMemoName.PREFIX}123"
         // cachedAtEpochMs = 0 → far past the orphan age threshold.
-        dao.insertAtTop(entity(tempName).copy(content = "orphan", cachedAtEpochMs = 0))
+        dao.insertAtTop(memoEntity(tempName).copy(content = "orphan", cachedAtEpochMs = 0))
 
         repo.syncPending()
 
@@ -214,10 +214,10 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
         val tempName = "${LocalMemoName.PREFIX}123"
         dao.insertAtTop(
-            entity(tempName).copy(content = "x", cachedAtEpochMs = nu.bacher.memos.util.currentTimeMillis()),
+            memoEntity(tempName).copy(content = "x", cachedAtEpochMs = nu.bacher.memos.util.currentTimeMillis()),
         )
 
         repo.syncPending()
@@ -237,7 +237,7 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         val created = repo.create("v1")
         assertEquals(1, calls, "create should have made one API attempt")
@@ -272,7 +272,7 @@ class OfflineQueueTest {
         }
         val dao = FakeMemoDao()
         val pending = FakePendingActionDao()
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         val created = repo.create("hello")
         assertEquals(1, calls)
@@ -286,11 +286,11 @@ class OfflineQueueTest {
 
     @Test
     fun update_queues_when_api_fails_retriably_and_keeps_optimistic_write() = runTest {
-        val prior = entity("memos/x").copy(content = "old", visibility = "PRIVATE")
+        val prior = memoEntity("memos/x").copy(content = "old", visibility = "PRIVATE")
         val dao = FakeMemoDao().also { it.upsertAll(listOf(prior)) }
         val pending = FakePendingActionDao()
         val engine = MockEngine { _ -> respondError(HttpStatusCode.InternalServerError) }
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         val saved = repo.update("memos/x", content = "new", visibility = "PUBLIC")
 
@@ -307,11 +307,11 @@ class OfflineQueueTest {
 
     @Test
     fun update_collapses_repeated_retries_to_a_single_queued_action() = runTest {
-        val prior = entity("memos/x").copy(content = "v0")
+        val prior = memoEntity("memos/x").copy(content = "v0")
         val dao = FakeMemoDao().also { it.upsertAll(listOf(prior)) }
         val pending = FakePendingActionDao()
         val engine = MockEngine { _ -> respondError(HttpStatusCode.InternalServerError) }
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         repo.update("memos/x", content = "v1")
         repo.update("memos/x", content = "v2")
@@ -329,11 +329,11 @@ class OfflineQueueTest {
         // UPDATE then DELETE while offline — the queued UPDATE would replay
         // first and hit a memo the server doesn't have, so DELETE must drop
         // it before queueing itself.
-        val prior = entity("memos/x").copy(content = "v0")
+        val prior = memoEntity("memos/x").copy(content = "v0")
         val dao = FakeMemoDao().also { it.upsertAll(listOf(prior)) }
         val pendingDao = FakePendingActionDao()
         val engine = MockEngine { _ -> respondError(HttpStatusCode.InternalServerError) }
-        val repo = repo(engine, dao, pendingDao)
+        val repo = testMemoRepository(engine, dao, pendingDao)
 
         repo.update("memos/x", content = "v1")
         assertEquals(PendingActionType.UPDATE.storedValue, pendingDao.rows.single().type)
@@ -347,11 +347,11 @@ class OfflineQueueTest {
 
     @Test
     fun delete_queues_when_api_fails_retriably_and_keeps_cache_empty() = runTest {
-        val prior = entity("memos/x")
+        val prior = memoEntity("memos/x")
         val dao = FakeMemoDao().also { it.upsertAll(listOf(prior)) }
         val pending = FakePendingActionDao()
         val engine = MockEngine { _ -> respondError(HttpStatusCode.InternalServerError) }
-        val repo = repo(engine, dao, pending)
+        val repo = testMemoRepository(engine, dao, pending)
 
         repo.delete("memos/x")
 
@@ -364,39 +364,6 @@ class OfflineQueueTest {
     // --- helpers (duplicated minimally from MemoRepositoryTest so this file
     // is self-contained and we don't end up tangling test fixtures) ---
 
-    private fun repo(
-        engine: MockEngine,
-        dao: FakeMemoDao,
-        pendingDao: FakePendingActionDao = FakePendingActionDao(),
-    ): MemoRepository {
-        val client = HttpClient(engine) {
-            expectSuccess = true
-            install(ContentNegotiation) { json(MemosJson) }
-        }
-        return MemoRepository(
-            api = MemosApi(client),
-            dao = dao,
-            pendingActionDao = pendingDao,
-            verifyClientFactory = { _, _ -> fail("verifyCreds is not exercised here") },
-        )
-    }
 
-    private fun jsonHeaders() = headersOf(HttpHeaders.ContentType, "application/json")
 
-    private fun entity(name: String, order: Int = 0) = MemoEntity(
-        name = name,
-        uid = null,
-        content = "",
-        visibility = "PRIVATE",
-        state = null,
-        pinned = false,
-        createTime = null,
-        updateTime = null,
-        displayTime = null,
-        creator = null,
-        tagsCsv = "",
-        attachmentsJson = "",
-        orderInList = order,
-        cachedAtEpochMs = 0,
-    )
 }

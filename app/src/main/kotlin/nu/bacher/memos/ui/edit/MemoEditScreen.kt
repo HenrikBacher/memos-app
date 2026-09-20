@@ -114,11 +114,7 @@ fun MemoEditScreen(
     val handlePicked: (Uri?) -> Unit = { uri ->
         if (uri != null) {
             scope.launch {
-                val source = attachmentSourceFor(
-                    context = context,
-                    uri = uri,
-                    sizeLimit = MemoEditViewModel.MAX_ATTACHMENT_BYTES,
-                )
+                val source = attachmentSourceFor(context, uri)
                 if (source != null) vm.addAttachment(source) else vm.reportUnreadableAttachment()
             }
         }
@@ -131,6 +127,9 @@ fun MemoEditScreen(
     }
     // Resolved in composable scope so they track configuration changes;
     // LaunchedEffect and onClick bodies can't call stringResource themselves.
+    // (Deliberately not remember-ed against LocalConfiguration: lint's
+    // LocalContextGetResourceValueCall rejects context.getString here, and a
+    // few microseconds per recomposition isn't worth defeating that check.)
     val savedMessage = stringResource(R.string.edit_saved)
     val shareChooserTitle = stringResource(R.string.edit_share_chooser)
     val errorMessage = state.error?.let { stringResource(it.messageRes()) }

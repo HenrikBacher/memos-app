@@ -4,9 +4,10 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * The memo cache. Destructive migration is deliberate: existing installs may
@@ -32,43 +33,59 @@ fun createMemosDatabase(context: Context): MemosDatabase =
  * Reminders. No destructive fallback — this is user data, so a future schema
  * change here has to come with a real migration rather than silently dropping
  * alarms the user set.
+ *
+ * Reminders used to live in [MemosDatabase], where its destructive-migration
+ * fallback destroyed them on every cache schema bump. The legacy rows are
+ * rescued in the creation callback: creating this file *is* the "already
+ * imported" marker, and Room runs the callback before any query on this
+ * database returns — so a reader racing startup (notably `BootReceiver`
+ * re-arming alarms straight after boot) cannot observe an empty table and
+ * conclude there is nothing to schedule.
  */
-fun createRemindersDatabase(context: Context): RemindersDatabase =
-    Room.databaseBuilder<RemindersDatabase>(
+fun createRemindersDatabase(context: Context): RemindersDatabase {
+    val legacyPath = context.applicationContext.getDatabasePath(MEMOS_DB).absolutePath
+    return Room.databaseBuilder<RemindersDatabase>(
         context = context.applicationContext,
-        name = context.getDatabasePath(REMINDERS_DB).absolutePath,
+        name = context.applicationContext.getDatabasePath(REMINDERS_DB).absolutePath,
     )
         .setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(Dispatchers.IO)
+        .addCallback(LegacyReminderImport(legacyPath))
         .build()
+}
 
 /**
- * Rescues reminders left in the legacy combined database, once per install.
+ * Copies reminders out of the pre-split database the first time this one is
+ * created.
  *
- * Before the split, reminders shared [MemosDatabase] and were destroyed by its
- * destructive-migration fallback on every schema bump. Rows are read with
- * plain SQLite (Room must not open the legacy file — that is what would
- * trigger the wipe) and written through [ReminderDao], preserving each row's
- * id so alarms already scheduled against it still match.
+ * Reads with plain SQLite: Room must not open the legacy file, because that
+ * is what triggers its destructive migration. Row ids are preserved so alarms
+ * already scheduled against them still match.
  *
- * Guarded end to end: the worst case on failure is the old behaviour, so this
- * must never take app startup down.
+ * Every failure is swallowed — a throw here would abort database creation,
+ * and the worst case without the import is the behaviour users already had.
  */
-suspend fun importLegacyReminders(context: Context, dao: ReminderDao) {
-    val appContext = context.applicationContext
-    val prefs = appContext.getSharedPreferences(MIGRATION_PREFS, Context.MODE_PRIVATE)
-    if (prefs.getBoolean(KEY_REMINDERS_IMPORTED, false)) return
-
-    val legacy = appContext.getDatabasePath(MEMOS_DB)
-    if (legacy.exists()) {
-        val rows = withContext(Dispatchers.IO) { readLegacyReminders(legacy.absolutePath) }
-        for (row in rows) {
-            runCatching { dao.upsert(row) }
-                .onFailure { Log.w(TAG, "could not import reminder for ${row.memoName}", it) }
-        }
-        if (rows.isNotEmpty()) Log.i(TAG, "imported ${rows.size} legacy reminder(s)")
+private class LegacyReminderImport(private val legacyPath: String) : RoomDatabase.Callback() {
+    override fun onCreate(connection: SQLiteConnection) {
+        val rows = readLegacyReminders(legacyPath)
+        if (rows.isEmpty()) return
+        runCatching {
+            connection.prepare(
+                "INSERT OR IGNORE INTO reminders (id, memoName, triggerAtEpochMs, createdAtEpochMs) " +
+                    "VALUES (?, ?, ?, ?)",
+            ).use { stmt ->
+                for (row in rows) {
+                    stmt.bindInt(1, row.id)
+                    stmt.bindText(2, row.memoName)
+                    stmt.bindLong(3, row.triggerAtEpochMs)
+                    stmt.bindLong(4, row.createdAtEpochMs)
+                    stmt.step()
+                    stmt.reset()
+                }
+            }
+            Log.i(TAG, "imported ${rows.size} legacy reminder(s)")
+        }.onFailure { Log.w(TAG, "legacy reminder import failed", it) }
     }
-    prefs.edit().putBoolean(KEY_REMINDERS_IMPORTED, true).apply()
 }
 
 /** Read-only peek at the legacy file. Absent table → empty list, not a crash. */
@@ -99,6 +116,4 @@ private fun readLegacyReminders(path: String): List<ReminderEntity> = runCatchin
 
 private const val MEMOS_DB = "memos.db"
 private const val REMINDERS_DB = "reminders.db"
-private const val MIGRATION_PREFS = "memos_migration_prefs"
-private const val KEY_REMINDERS_IMPORTED = "reminders_imported_v1"
 private const val TAG = "MemosDatabaseFactory"

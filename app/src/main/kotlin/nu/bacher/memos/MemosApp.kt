@@ -19,13 +19,12 @@ import kotlinx.coroutines.launch
 import nu.bacher.memos.data.api.buildImageHttpClient
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.MemoDao
-import nu.bacher.memos.data.db.ReminderDao
-import nu.bacher.memos.data.db.importLegacyReminders
 import nu.bacher.memos.di.androidPlatformModule
 import nu.bacher.memos.di.appModule
 import nu.bacher.memos.di.commonModule
 import nu.bacher.memos.reminder.notify.NotificationHelper
 import nu.bacher.memos.widget.MemosWidget
+import nu.bacher.memos.widget.WIDGET_MAX_ROWS
 import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -35,16 +34,10 @@ class MemosApp : Application(), SingletonImageLoader.Factory {
     private val authStore: AuthStore by inject()
     private val httpEngine: HttpClientEngineFactory<*> by inject()
     private val memoDao: MemoDao by inject()
-    private val reminderDao: ReminderDao by inject()
 
     // Long-lived scope for app-process background work (currently just widget
     // sync). SupervisorJob keeps a single failure from killing the whole scope.
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    private companion object {
-        /** Must match MemosWidget.MAX_ROWS — the observer and the render agree. */
-        const val WIDGET_ROWS = 8
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -65,9 +58,6 @@ class MemosApp : Application(), SingletonImageLoader.Factory {
             )
         }
         NotificationHelper.createChannels(this)
-        // One-time rescue of reminders from the pre-split database. Safe to
-        // run on every start — it short-circuits once it has completed.
-        appScope.launch { importLegacyReminders(this@MemosApp, reminderDao) }
         observeMemosForWidget()
     }
 
@@ -84,7 +74,7 @@ class MemosApp : Application(), SingletonImageLoader.Factory {
      */
     private fun observeMemosForWidget() {
         appScope.launch {
-            memoDao.observeWidgetMemos(WIDGET_ROWS)
+            memoDao.observeWidgetMemos(WIDGET_MAX_ROWS)
                 .distinctUntilChanged()
                 .drop(1)
                 .onEach { MemosWidget().updateAll(this@MemosApp) }

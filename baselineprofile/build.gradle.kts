@@ -16,11 +16,12 @@ plugins {
  */
 android {
     namespace = "nu.bacher.memos.baselineprofile"
-    compileSdk = 37
+    compileSdk = libs.versions.compileSdk.get().toInt()
+    buildToolsVersion = libs.versions.buildTools.get()
 
     defaultConfig {
-        minSdk = 34
-        targetSdk = 37
+        minSdk = libs.versions.minSdk.get().toInt()
+        targetSdk = libs.versions.targetSdk.get().toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -28,7 +29,7 @@ android {
 }
 
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(libs.versions.jvmToolchain.get().toInt())
 }
 
 baselineProfile {

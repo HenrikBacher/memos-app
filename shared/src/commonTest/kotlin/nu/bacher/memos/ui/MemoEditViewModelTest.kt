@@ -27,6 +27,9 @@ import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.repo.FakeMemoDao
 import nu.bacher.memos.data.repo.FakePendingActionDao
+import nu.bacher.memos.data.repo.testHttpClient
+import nu.bacher.memos.data.repo.testMemoRepository
+import nu.bacher.memos.data.repo.jsonHeaders
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.ui.edit.MemoEditViewModel
 import com.russhwolf.settings.MapSettings
@@ -169,16 +172,8 @@ class MemoEditViewModelTest {
     }
 
     private fun vm(engine: MockEngine): MemoEditViewModel {
-        val client = HttpClient(engine) {
-            expectSuccess = true
-            install(ContentNegotiation) { json(MemosJson) }
-        }
-        val repo = MemoRepository(
-            api = MemosApi(client),
-            dao = FakeMemoDao(),
-            pendingActionDao = FakePendingActionDao(),
-            verifyClientFactory = { _, _ -> client },
-        )
+        val client = testHttpClient(engine)
+        val repo = testMemoRepository(engine, verifyClient = client)
         return MemoEditViewModel(
             memoRepo = repo,
             reminderRepo = testReminderRepository(),

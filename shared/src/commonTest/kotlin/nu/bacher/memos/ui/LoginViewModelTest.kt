@@ -22,12 +22,15 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.fail
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.repo.FakeMemoDao
 import nu.bacher.memos.data.repo.FakePendingActionDao
+import nu.bacher.memos.data.repo.testHttpClient
+import nu.bacher.memos.data.repo.testMemoRepository
+import nu.bacher.memos.data.repo.jsonHeaders
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.ui.login.LoginViewModel
 
@@ -53,7 +56,7 @@ class LoginViewModelTest {
 
         vm.onUrlChange("http://memos.example.com")
         vm.onTokenChange("tok")
-        vm.submit(onSuccess = { fail_("should not succeed") })
+        vm.submit(onSuccess = { fail("should not succeed") })
 
         assertEquals(LoginViewModel.LoginError.URL_NOT_HTTPS, vm.state.value.error)
         assertEquals(0, calls, "an invalid URL must not be sent anywhere")
@@ -80,7 +83,7 @@ class LoginViewModelTest {
 
         vm.onUrlChange("https://memos.example.com")
         vm.onTokenChange("   ")
-        vm.submit(onSuccess = { fail_("should not succeed") })
+        vm.submit(onSuccess = { fail("should not succeed") })
 
         assertEquals(LoginViewModel.LoginError.TOKEN_REQUIRED, vm.state.value.error)
     }
@@ -91,7 +94,7 @@ class LoginViewModelTest {
 
         vm.onUrlChange("https://memos.example.com")
         vm.onTokenChange("bad")
-        vm.submit(onSuccess = { fail_("should not succeed") })
+        vm.submit(onSuccess = { fail("should not succeed") })
 
         assertEquals(LoginViewModel.LoginError.AUTH, vm.awaitError())
     }
@@ -102,7 +105,7 @@ class LoginViewModelTest {
 
         vm.onUrlChange("https://memos.example.com")
         vm.onTokenChange("tok")
-        vm.submit(onSuccess = { fail_("should not succeed") })
+        vm.submit(onSuccess = { fail("should not succeed") })
 
         assertEquals(LoginViewModel.LoginError.BUSY, vm.awaitError())
     }
@@ -125,21 +128,10 @@ class LoginViewModelTest {
         state.first { it.error != null }.error!!
 
     private fun vm(engine: MockEngine): LoginViewModel {
-        val client = HttpClient(engine) {
-            expectSuccess = true
-            install(ContentNegotiation) { json(MemosJson) }
-        }
+        val client = testHttpClient(engine)
         val authStore = AuthStore(MapSettings(), PlaintextSecretCipher)
-        val repo = MemoRepository(
-            api = MemosApi(client),
-            dao = FakeMemoDao(),
-            pendingActionDao = FakePendingActionDao(),
-            verifyClientFactory = { _, _ -> client },
-        )
+        val repo = testMemoRepository(engine, verifyClient = client)
         return LoginViewModel(authStore, repo)
     }
 
-    private fun jsonHeaders() = headersOf(HttpHeaders.ContentType, "application/json")
-
-    private fun fail_(message: String): Nothing = throw AssertionError(message)
 }

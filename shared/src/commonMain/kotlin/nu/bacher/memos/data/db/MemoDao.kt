@@ -79,6 +79,17 @@ interface MemoDao {
     )
     suspend fun tempRowsOlderThan(tempPrefix: String, cutoff: Long): List<MemoEntity>
 
+    /**
+     * Temp rows belonging to one lifecycle partition — what survives
+     * [deleteSynced] and has to keep its place at the top. Scoped to the
+     * partition so a refresh of one view never renumbers the other's rows.
+     */
+    @Query(
+        "SELECT * FROM memos WHERE name LIKE :tempPrefix || '%' " +
+            "AND (COALESCE(state, 'NORMAL') = 'ARCHIVED') = :archived ORDER BY orderInList ASC",
+    )
+    suspend fun keptTempRows(tempPrefix: String, archived: Boolean): List<MemoEntity>
+
     /** Names of rows whose queued write was abandoned. Drives the list badge. */
     @Query("SELECT name FROM memos WHERE syncFailed != 0")
     fun observeSyncFailedNames(): Flow<List<String>>

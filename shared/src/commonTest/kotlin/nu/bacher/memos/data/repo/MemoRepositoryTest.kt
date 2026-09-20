@@ -49,9 +49,9 @@ class MemoRepositoryTest {
             )
         }
         val dao = FakeMemoDao().also {
-            it.upsertAll(listOf(entity("memos/old", order = 0)))
+            it.upsertAll(listOf(memoEntity("memos/old", order = 0)))
         }
-        val repo = repo(engine, dao)
+        val repo = testMemoRepository(engine, dao)
 
         val saved = repo.create("hello")
 
@@ -78,7 +78,7 @@ class MemoRepositoryTest {
             respond("unreachable", HttpStatusCode.OK, jsonHeaders())
         }
         val dao = FakeMemoDao()
-        val repo = repo(engine, dao)
+        val repo = testMemoRepository(engine, dao)
 
         val job = launch { runCatching { repo.create("hi") } }
         engineEntered.await()
@@ -103,9 +103,9 @@ class MemoRepositoryTest {
             respond("nope", HttpStatusCode.BadRequest, jsonHeaders())
         }
         val dao = FakeMemoDao().also {
-            it.upsertAll(listOf(entity("memos/old", order = 0)))
+            it.upsertAll(listOf(memoEntity("memos/old", order = 0)))
         }
-        val repo = repo(engine, dao)
+        val repo = testMemoRepository(engine, dao)
 
         assertFailsWith<Throwable> { repo.create("boom") }
 
@@ -117,7 +117,7 @@ class MemoRepositoryTest {
 
     @Test
     fun update_writes_to_cache_first_and_rolls_back_on_non_retriable_failure() = runTest {
-        val prior = entity("memos/x", order = 5).copy(content = "old", visibility = "PRIVATE")
+        val prior = memoEntity("memos/x", order = 5).copy(content = "old", visibility = "PRIVATE")
         val dao = FakeMemoDao().also { it.upsertAll(listOf(prior)) }
 
         var capturedDuringCall: MemoEntity? = null
@@ -127,7 +127,7 @@ class MemoRepositoryTest {
             capturedDuringCall = dao.getAll().first { it.name == "memos/x" }
             respond("nope", HttpStatusCode.BadRequest, jsonHeaders())
         }
-        val repo = repo(engine, dao)
+        val repo = testMemoRepository(engine, dao)
 
         assertFailsWith<Throwable> {
             repo.update("memos/x", content = "new", visibility = "PUBLIC")
@@ -148,7 +148,7 @@ class MemoRepositoryTest {
 
     @Test
     fun delete_removes_from_cache_first_and_restores_on_non_retriable_failure() = runTest {
-        val prior = entity("memos/x", order = 3)
+        val prior = memoEntity("memos/x", order = 3)
         val dao = FakeMemoDao().also { it.upsertAll(listOf(prior)) }
 
         var observedDuringCall: List<String> = emptyList()
@@ -156,7 +156,7 @@ class MemoRepositoryTest {
             observedDuringCall = dao.getAll().map { it.name }
             respond("nope", HttpStatusCode.BadRequest, jsonHeaders())
         }
-        val repo = repo(engine, dao)
+        val repo = testMemoRepository(engine, dao)
 
         assertFailsWith<Throwable> { repo.delete("memos/x") }
 
@@ -168,9 +168,9 @@ class MemoRepositoryTest {
 
     @Test
     fun delete_succeeds_and_leaves_cache_empty_on_2xx() = runTest {
-        val dao = FakeMemoDao().also { it.upsertAll(listOf(entity("memos/x"))) }
+        val dao = FakeMemoDao().also { it.upsertAll(listOf(memoEntity("memos/x"))) }
         val engine = MockEngine { _ -> respond("", HttpStatusCode.OK, jsonHeaders()) }
-        val repo = repo(engine, dao)
+        val repo = testMemoRepository(engine, dao)
 
         repo.delete("memos/x")
         assertEquals(emptyList(), dao.getAll())
@@ -193,7 +193,7 @@ class MemoRepositoryTest {
                 jsonHeaders(),
             )
         }
-        val repo = repo(engine, FakeMemoDao())
+        val repo = testMemoRepository(engine, FakeMemoDao())
 
         val result = repo.uploadAttachment(
             source = attachmentSource(bytes, "a.bin", "application/octet-stream"),
@@ -230,7 +230,7 @@ class MemoRepositoryTest {
                 jsonHeaders(),
             )
         }
-        val repo = repo(engine, FakeMemoDao())
+        val repo = testMemoRepository(engine, FakeMemoDao())
 
         repo.uploadAttachment(
             source = attachmentSource(byteArrayOf(1, 2, 3), "a.png", "image/png"),
@@ -248,9 +248,9 @@ class MemoRepositoryTest {
     @Test
     fun clearCache_empties_the_dao() = runTest {
         val dao = FakeMemoDao().also {
-            it.upsertAll(listOf(entity("memos/a"), entity("memos/b")))
+            it.upsertAll(listOf(memoEntity("memos/a"), memoEntity("memos/b")))
         }
-        val repo = repo(MockEngine { fail("network must not be called") }, dao)
+        val repo = testMemoRepository(MockEngine { fail("network must not be called") }, dao)
 
         repo.clearCache()
         assertEquals(emptyList(), dao.getAll())
@@ -258,24 +258,7 @@ class MemoRepositoryTest {
 
     // --- helpers ---
 
-    private fun repo(
-        engine: MockEngine,
-        dao: FakeMemoDao,
-        pendingDao: FakePendingActionDao = FakePendingActionDao(),
-    ): MemoRepository {
-        val client = HttpClient(engine) {
-            expectSuccess = true
-            install(ContentNegotiation) { json(MemosJson) }
-        }
-        return MemoRepository(
-            api = MemosApi(client),
-            dao = dao,
-            pendingActionDao = pendingDao,
-            verifyClientFactory = { _, _ -> fail("verifyCreds is not exercised here") },
-        )
-    }
 
-    private fun jsonHeaders() = headersOf(HttpHeaders.ContentType, "application/json")
 
     /**
      * Drives a [OutgoingContent.WriteChannelContent] body and collects its
@@ -300,22 +283,6 @@ class MemoRepositoryTest {
         }
     }
 
-    private fun entity(name: String, order: Int = 0) = MemoEntity(
-        name = name,
-        uid = null,
-        content = "",
-        visibility = "PRIVATE",
-        state = null,
-        pinned = false,
-        createTime = null,
-        updateTime = null,
-        displayTime = null,
-        creator = null,
-        tagsCsv = "",
-        attachmentsJson = "",
-        orderInList = order,
-        cachedAtEpochMs = 0,
-    )
 }
 
 /**

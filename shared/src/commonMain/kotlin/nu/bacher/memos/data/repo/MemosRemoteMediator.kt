@@ -7,6 +7,7 @@ import androidx.paging.RemoteMediator
 import kotlinx.serialization.builtins.ListSerializer
 import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.api.MemoDto
+import nu.bacher.memos.data.api.MemoState
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.db.LocalMemoName
@@ -49,10 +50,11 @@ class MemosRemoteMediator(
 
     /**
      * memos v1 filter expression selecting the state this mediator pages.
-     * Same CEL-ish grammar as the search filter in `buildSearchFilter`.
+     * Same CEL-ish grammar (and the same quoting) as `buildSearchFilter`.
+     * [archived] is a constructor val, so this can't change per load.
      */
-    private fun stateFilter(): String =
-        if (archived) "state == \"ARCHIVED\"" else "state == \"NORMAL\""
+    private val stateFilter: String =
+        "state == " + quote(if (archived) MemoState.ARCHIVED else MemoState.NORMAL)
 
     override suspend fun initialize(): InitializeAction =
         // Always refresh on attach: the cache may be stale across launches and
@@ -79,7 +81,7 @@ class MemosRemoteMediator(
         }
 
         return try {
-            val response = api.listMemos(pageToken = pageToken, filter = stateFilter())
+            val response = api.listMemos(pageToken = pageToken, filter = stateFilter)
             val now = currentTimeMillis()
 
             // Both DAO entry points assign orderInList themselves, so the

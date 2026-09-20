@@ -31,13 +31,13 @@ val publisherCredentialsPath: String? = System.getenv("ANDROID_PUBLISHER_CREDENT
 
 android {
     namespace = "nu.bacher.memos"
-    compileSdk = 37
+    compileSdk = libs.versions.compileSdk.get().toInt()
     buildToolsVersion = libs.versions.buildTools.get()
 
     defaultConfig {
         applicationId = "nu.bacher.memos"
-        minSdk = 34
-        targetSdk = 37
+        minSdk = libs.versions.minSdk.get().toInt()
+        targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
         versionName = (project.findProperty("appVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "0.1.0"
     }
@@ -82,7 +82,7 @@ android {
 }
 
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(libs.versions.jvmToolchain.get().toInt())
 }
 
 dependencies {

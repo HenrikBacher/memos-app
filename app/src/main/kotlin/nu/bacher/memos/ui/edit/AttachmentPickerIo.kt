@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.io.RawSource
 import kotlinx.io.asSource
 import nu.bacher.memos.data.api.AttachmentSource
+import nu.bacher.memos.ui.edit.MemoEditViewModel
 
 /**
  * Describes what a `content://` URI points at — display name, MIME type, and
@@ -33,7 +34,7 @@ import nu.bacher.memos.data.api.AttachmentSource
 internal suspend fun attachmentSourceFor(
     context: Context,
     uri: Uri,
-    sizeLimit: Long,
+    sizeLimit: Long = MemoEditViewModel.MAX_ATTACHMENT_BYTES,
 ): AttachmentSource? = withContext(Dispatchers.IO) {
     // Application-scoped: this resolver is captured by the returned openSource
     // lambda, which outlives the picking screen (the upload runs on

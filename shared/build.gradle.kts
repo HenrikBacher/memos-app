@@ -7,12 +7,12 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(libs.versions.jvmToolchain.get().toInt())
 
     android {
         namespace = "nu.bacher.memos.shared"
-        compileSdk = 37
-        minSdk = 34
+        compileSdk = libs.versions.compileSdk.get().toInt()
+        minSdk = libs.versions.minSdk.get().toInt()
         buildToolsVersion = libs.versions.buildTools.get()
 
         // Opt in to a host (unit) test compilation so the KMP-auto-created

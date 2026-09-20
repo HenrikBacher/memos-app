@@ -169,68 +169,79 @@ class MemoListViewModel(
     )
 
     /**
-     * Paged memos for the screen. Combines the (debounced) query, selected
-     * tag, reminder map, and pending-sync set; rebuilds the paging stream
-     * whenever the query mode flips. cachedIn lets the screen survive config
-     * changes.
-     */
-    /**
-     * What the paging stream is built from. Collapsed to a value so an input
-     * the active mode ignores can't tear the stream down: while a search is
-     * running the server filter already owns tag and state, so toggling either
-     * must not cancel and re-issue the query.
+     * What the paging *source* is built from — nothing else. Every input here
+     * rebuilds the Pager, so only things that genuinely change the source
+     * belong: the active search, and the lifecycle state (which selects the
+     * DAO query and the server filter). The tag is applied client-side over
+     * loaded pages, so it must NOT be here — including it would make a chip
+     * tap tear down the Pager and re-issue a network refresh.
+     *
+     * Collapsed to a value with distinctUntilChanged because searchStream is
+     * shared with replay, so it re-emits the same instance when an unrelated
+     * input changes; without this, toggling archive mid-search would cancel
+     * and re-issue the live query.
      */
     private data class PageKey(
         val search: MemoRepository.SearchStream?,
         val archived: Boolean,
-        val tag: String?,
     )
 
     private val pageKey: Flow<PageKey> =
-        combine(searchStream, showArchived, selectedTag) { search, archived, tag ->
-            if (search != null) PageKey(search, archived = false, tag = null)
-            else PageKey(null, archived, tag)
+        combine(searchStream, showArchived) { search, archived ->
+            if (search != null) PageKey(search, archived = false) else PageKey(null, archived)
         }.distinctUntilChanged()
 
+    /**
+     * The pages themselves, cached.
+     *
+     * cachedIn sits *here*, above the per-row decoration, which is what keeps
+     * a badge change from rebuilding the Pager. It previously sat below a
+     * combine that included a Flow over the `memos` table, so every write to
+     * that table built a new Pager, whose mediator immediately issued a
+     * REFRESH, which wrote to the table again — a self-sustaining refresh
+     * loop that ran for the ViewModel's whole lifetime.
+     */
+    private val pagedMemos: Flow<PagingData<MemoDto>> =
+        pageKey
+            .flatMapLatest { key -> key.search?.pages ?: memoRepo.memosPagingData(key.archived) }
+            .cachedIn(viewModelScope)
+
+    /** Per-row decoration, bundled so the combine below stays within arity. */
+    private data class Badges(
+        val reminders: Map<String, ReminderEntity>,
+        val pending: Set<String>,
+        val failed: Set<String>,
+    )
+
+    private val badges: Flow<Badges> =
+        combine(reminderMap, pendingNames, syncFailedNames, ::Badges).distinctUntilChanged()
+
+    /**
+     * Paged memos for the screen: cached pages, decorated with the tag filter
+     * and per-row badges. Decoration re-maps loaded pages; it never rebuilds
+     * the Pager.
+     */
     val memos: Flow<PagingData<Row>> =
-        combine(
-            pageKey,
-            reminderMap,
-            pendingNames,
-            syncFailedNames,
-        ) { key, reminders, pending, failed ->
-            // The cached path is already scoped to one lifecycle state by the
-            // DAO and the mediator; only [tag] is applied client-side, because
-            // the server doesn't know about tags. Search spans both states on
-            // purpose — an explicit query is how you find an archived note.
-            val source: Flow<PagingData<MemoDto>> = key.search?.pages
-                ?: memoRepo.memosPagingData(key.archived).map { paging ->
-                    paging.filter { memo -> tagMatches(memo, key.tag) }
-                }
-            source.map { paging ->
-                paging.map { memo ->
-                    Row(
-                        memo = memo,
-                        reminder = reminders[memo.name],
-                        pendingSync = memo.name in pending,
-                        syncFailed = memo.name in failed,
-                    )
-                }
+        combine(pagedMemos, searchStream, selectedTag, badges) { paging, search, tag, b ->
+            // Tag filtering is client-side only on the cached path — a server
+            // search already applied it in the filter expression, and
+            // re-checking locally would drop rows whose tags the server knows
+            // about but the cached DTO doesn't.
+            val filtered = if (search == null) paging.filter { tagMatches(it, tag) } else paging
+            filtered.map { memo ->
+                Row(
+                    memo = memo,
+                    reminder = b.reminders[memo.name],
+                    pendingSync = memo.name in b.pending,
+                    syncFailed = memo.name in b.failed,
+                )
             }
-        }.flatMapLatest { it }.cachedIn(viewModelScope)
+        }
 
     init {
         // Cold-start flush — if the previous session left actions queued,
         // try to push them now that we're online (or fail fast and stay
         // queued).
-        viewModelScope.launch { trySyncPending() }
-    }
-
-    /**
-     * Trigger a flush of the offline queue. Safe to call repeatedly — a
-     * no-op when the queue is empty. Callers: MainActivity.onResume.
-     */
-    fun syncPending() {
         viewModelScope.launch { trySyncPending() }
     }
 

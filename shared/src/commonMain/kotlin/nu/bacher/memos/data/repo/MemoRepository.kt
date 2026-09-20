@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map as mapFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.serializer
@@ -61,14 +62,14 @@ class MemoRepository(
      * screen uses this to paint a "Sync pending" badge on the matching cards.
      */
     val pendingNames: Flow<Set<String>>
-        get() = pendingActionDao.observePendingNames().mapFlow { it.toSet() }
+        get() = pendingActionDao.observePendingNames().mapFlow { it.toSet() }.distinctUntilChanged()
 
     /**
      * Memos whose queued write was abandoned and will not be retried. The list
      * badges these so an unsyncable memo doesn't read as saved.
      */
     val syncFailedNames: Flow<Set<String>>
-        get() = dao.observeSyncFailedNames().mapFlow { it.toSet() }
+        get() = dao.observeSyncFailedNames().mapFlow { it.toSet() }.distinctUntilChanged()
 
     // Match initialLoadSize to one server page so the first network call
     // delivers a full screen without the mediator immediately issuing an APPEND.
@@ -717,7 +718,8 @@ internal fun buildSearchFilter(query: String, tag: String?): String? {
     return if (parts.isEmpty()) null else parts.joinToString(" && ")
 }
 
-private fun quote(s: String): String {
+/** Quotes a string literal for a memos v1 filter expression. */
+internal fun quote(s: String): String {
     val escaped = s.replace("\\", "\\\\").replace("\"", "\\\"")
     return "\"$escaped\""
 }

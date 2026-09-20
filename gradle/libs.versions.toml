@@ -1,5 +1,12 @@
 [versions]
 agp = "9.4.1"
+# SDK levels and toolchain live here, not hand-copied into each module's
+# build file — AGENTS.md makes this catalog the single source of truth for
+# versions, and a third module immediately drifted when they didn't.
+compileSdk = "37"
+targetSdk = "37"
+minSdk = "34"
+jvmToolchain = "25"
 # AGP picks an older build-tools by default than the SDK packages CI installs,
 # and silently downloads it mid-build on every run. Pin it to what CI and the
 # dev container actually ship.

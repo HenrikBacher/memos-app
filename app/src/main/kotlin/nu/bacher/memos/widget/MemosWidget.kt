@@ -42,8 +42,8 @@ import org.koin.java.KoinJavaComponent.get
  * deep-links into [MainActivity] with [MainActivity.EXTRA_OPEN_MEMO_NAME]; the
  * "+" in the header opens a fresh New Memo screen.
  *
- * Reads from the local Room cache via [MemoDao.getAll] — the widget never hits
- * the network. [MemosApp] observes the cache and calls [updateAll] when it
+ * Reads from the local Room cache via [MemoDao.widgetMemos] — the widget never
+ * hits the network. [MemosApp] observes the cache and calls [updateAll] when it
  * changes so the widget stays in sync with the in-app list.
  */
 class MemosWidget : GlanceAppWidget() {
@@ -52,7 +52,7 @@ class MemosWidget : GlanceAppWidget() {
         val memoDao = get<MemoDao>(MemoDao::class.java)
         // Ordering, the archived split and the row cap are all in SQL — the
         // widget never pulls the whole cache into memory to render 8 rows.
-        val memos = memoDao.widgetMemos(MAX_ROWS)
+        val memos = memoDao.widgetMemos(WIDGET_MAX_ROWS)
             .map { WidgetMemo(it.name, widgetPreview(it.content)) }
 
         provideContent {
@@ -150,10 +150,10 @@ class MemosWidget : GlanceAppWidget() {
 
     private data class WidgetMemo(val name: String, val preview: String)
 
-    private companion object {
-        const val MAX_ROWS = 8
-    }
 }
+
+/** Rows the widget renders. Shared so the cache observer can't drift from it. */
+internal const val WIDGET_MAX_ROWS = 8
 
 private const val PREVIEW_CHARS = 90
 
