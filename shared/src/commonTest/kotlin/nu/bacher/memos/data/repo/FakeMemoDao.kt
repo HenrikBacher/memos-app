@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import nu.bacher.memos.data.db.MemoDao
 import nu.bacher.memos.data.db.MemoEntity
+import nu.bacher.memos.data.db.WidgetMemoRow
 
 /**
  * In-memory fake of [MemoDao] for repository tests. Uses [MutableStateFlow]
@@ -26,6 +27,12 @@ class FakeMemoDao : MemoDao {
 
     override suspend fun getAll(): List<MemoEntity> =
         state.value.sortedBy { it.orderInList }
+
+    override fun observeWidgetMemos(limit: Int): Flow<List<WidgetMemoRow>> =
+        state.map { rows -> rows.widgetRows(limit) }
+
+    override suspend fun widgetMemos(limit: Int): List<WidgetMemoRow> =
+        state.value.widgetRows(limit)
 
     override fun pagingSource(archived: Boolean): PagingSource<Int, MemoEntity> =
         // Repository tests don't exercise paging; a fake PagingSource here
@@ -106,6 +113,14 @@ class FakeMemoDao : MemoDao {
         }
     }
 }
+
+private fun List<MemoEntity>.widgetRows(limit: Int): List<WidgetMemoRow> =
+    asSequence()
+        .filter { !it.isArchived() }
+        .sortedBy { it.orderInList }
+        .take(limit)
+        .map { WidgetMemoRow(it.name, it.content) }
+        .toList()
 
 /** Mirrors the DAO's `COALESCE(state, 'NORMAL') = 'ARCHIVED'`. */
 private fun MemoEntity.isArchived(): Boolean = (state ?: "NORMAL") == "ARCHIVED"

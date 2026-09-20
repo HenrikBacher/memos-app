@@ -1,0 +1,33 @@
+# Kotlin official style (gradle.properties sets kotlin.code.style=official).
+# Written down here so editors and any future ktlint/detekt run agree with it
+# rather than each guessing.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{kt,kts}]
+max_line_length = 120
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+# Single source of import order, which is where this codebase has already drifted.
+ij_kotlin_imports_layout = *
+ij_kotlin_name_count_to_use_star_import = 2147483647
+ij_kotlin_name_count_to_use_star_import_for_members = 2147483647
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.xml]
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false
+
+[gradlew.bat]
+end_of_line = crlf

@@ -150,6 +150,7 @@
     <string name="notification_channel_reminders">Memo reminders</string>
     <string name="notification_channel_reminders_desc">Notifications for time-based memo reminders.</string>
     <string name="notification_snooze_24h">Snooze 24h</string>
+    <string name="notification_reminder_fallback">Reminder</string>
 
     <string name="share_saving">Saving memo…</string>
     <string name="share_saved">Memo saved</string>

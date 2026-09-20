@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import nu.bacher.memos.BuildConfig
 import nu.bacher.memos.MainActivity
 import nu.bacher.memos.R
 import nu.bacher.memos.reminder.time.AlarmReceiver
@@ -101,7 +102,7 @@ object NotificationHelper {
 
         try {
             nm.notify(memoName.hashCode(), notification)
-            Log.d(TAG, "posted notification for $memoName")
+            if (BuildConfig.DEBUG) Log.d(TAG, "posted notification for $memoName")
         } catch (se: SecurityException) {
             Log.w(TAG, "notify() rejected by system for $memoName", se)
         }

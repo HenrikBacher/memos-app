@@ -6,6 +6,7 @@ import nu.bacher.memos.data.api.buildMemosHttpClient
 import nu.bacher.memos.data.api.buildVerificationClient
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.MemosDatabase
+import nu.bacher.memos.data.db.RemindersDatabase
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
 import nu.bacher.memos.data.settings.LayoutPreferences
@@ -25,7 +26,7 @@ import org.koin.dsl.module
  * [nu.bacher.memos.reminder.time.ReminderScheduler].
  */
 fun commonModule(enableHttpLogging: Boolean = false) = module {
-    single { get<MemosDatabase>().reminderDao() }
+    single { get<RemindersDatabase>().reminderDao() }
     single { get<MemosDatabase>().memoDao() }
     single { get<MemosDatabase>().pendingActionDao() }
 

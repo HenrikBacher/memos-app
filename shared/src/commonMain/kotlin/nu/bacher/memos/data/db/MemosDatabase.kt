@@ -5,14 +5,19 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 
+/**
+ * Disposable cache of server state. Everything here can be re-fetched, which
+ * is what licenses the destructive-migration fallback in `MemosDatabaseFactory`.
+ * User data that cannot be re-fetched belongs in [RemindersDatabase] instead —
+ * do not add it here.
+ */
 @Database(
-    entities = [ReminderEntity::class, MemoEntity::class, PendingActionEntity::class],
+    entities = [MemoEntity::class, PendingActionEntity::class],
     version = 6,
     exportSchema = false,
 )
 @ConstructedBy(MemosDatabaseConstructor::class)
 abstract class MemosDatabase : RoomDatabase() {
-    abstract fun reminderDao(): ReminderDao
     abstract fun memoDao(): MemoDao
     abstract fun pendingActionDao(): PendingActionDao
 }

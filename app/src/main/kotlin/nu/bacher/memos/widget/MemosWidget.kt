@@ -34,7 +34,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import nu.bacher.memos.MainActivity
 import nu.bacher.memos.R
-import nu.bacher.memos.data.api.MemoState
 import nu.bacher.memos.data.db.MemoDao
 import org.koin.java.KoinJavaComponent.get
 
@@ -51,14 +50,10 @@ class MemosWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val memoDao = get<MemoDao>(MemoDao::class.java)
-        val memos = memoDao.getAll()
-            .asSequence()
-            // Mirror MemoListViewModel: archived stays out of the active view.
-            .filter { it.state != MemoState.ARCHIVED }
-            .sortedBy { it.orderInList }
-            .take(MAX_ROWS)
-            .map { WidgetMemo(it.name, it.content.preview()) }
-            .toList()
+        // Ordering, the archived split and the row cap are all in SQL — the
+        // widget never pulls the whole cache into memory to render 8 rows.
+        val memos = memoDao.widgetMemos(MAX_ROWS)
+            .map { WidgetMemo(it.name, widgetPreview(it.content)) }
 
         provideContent {
             GlanceTheme { Content(memos) }
@@ -157,20 +152,27 @@ class MemosWidget : GlanceAppWidget() {
 
     private companion object {
         const val MAX_ROWS = 8
-        const val PREVIEW_CHARS = 90
     }
+}
 
-    private fun String.preview(): String {
-        // Collapse newlines + trim leading markdown markers so each row stays a
-        // single, readable snippet rather than a jagged fragment.
-        val cleaned = lineSequence()
-            .map { line -> line.trimStart { it == '#' || it == '-' || it == '*' || it == ' ' || it == '\t' } }
-            .filter { it.isNotBlank() }
-            .joinToString(" ")
-            .trim()
-        return if (cleaned.length <= PREVIEW_CHARS) cleaned
-        else cleaned.take(PREVIEW_CHARS).trimEnd() + "…"
-    }
+private const val PREVIEW_CHARS = 90
+
+/**
+ * Flattens memo markdown into the single readable line a widget row shows:
+ * newlines collapsed, leading markdown markers trimmed, blank lines dropped,
+ * truncated with an ellipsis.
+ *
+ * Top-level (not a member) so it is reachable from unit tests without
+ * standing up a Glance composition.
+ */
+internal fun widgetPreview(content: String): String {
+    val cleaned = content.lineSequence()
+        .map { line -> line.trimStart { it == '#' || it == '-' || it == '*' || it == ' ' || it == '\t' } }
+        .filter { it.isNotBlank() }
+        .joinToString(" ")
+        .trim()
+    return if (cleaned.length <= PREVIEW_CHARS) cleaned
+    else cleaned.take(PREVIEW_CHARS).trimEnd() + "…"
 }
 
 class MemosWidgetReceiver : GlanceAppWidgetReceiver() {

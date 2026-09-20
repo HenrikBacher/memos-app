@@ -1,15 +1,46 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
 version: 2
 updates:
-  - package-ecosystem: "gradle" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "gradle"
+    directory: "/"
     schedule:
-      interval: "daily"
+      # Weekly, not daily: these are library bumps, and a daily cadence was
+      # producing more merge commits than feature work. Security advisories
+      # are unaffected — Dependabot raises those immediately regardless.
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # Grouped so a coordinated release (all of AndroidX, or Kotlin + KSP,
+    # which must move together) arrives as one reviewable PR instead of a
+    # dozen that each invalidate the others' CI runs.
+    groups:
+      androidx:
+        patterns:
+          - "androidx.*"
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "com.google.devtools.ksp*"
+          - "org.jetbrains.kotlinx:kotlinx-serialization*"
+      coroutines:
+        patterns:
+          - "org.jetbrains.kotlinx:kotlinx-coroutines*"
+      ktor:
+        patterns:
+          - "io.ktor*"
+      koin:
+        patterns:
+          - "io.insert-koin*"
+      build-plugins:
+        patterns:
+          - "com.android.*"
+          - "com.github.triplet*"
+          - "io.github.ben-manes*"
+          - "com.mikepenz.aboutlibraries*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"

@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import nu.bacher.memos.BuildConfig
 import androidx.core.content.getSystemService
 
 /**
@@ -33,7 +34,9 @@ class AlarmScheduler(private val context: Context) : ReminderScheduler {
             // Falls back to inexact — best we can do without the runtime grant.
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtEpochMs, pi)
         }
-        Log.d(TAG, "scheduled $memoName at $triggerAtEpochMs (exact=$canExact, code=$requestCode)")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "scheduled $memoName at $triggerAtEpochMs (exact=$canExact, code=$requestCode)")
+        }
     }
 
     override fun cancel(requestCode: Int) {

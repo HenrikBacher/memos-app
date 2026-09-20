@@ -8,7 +8,9 @@ import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import nu.bacher.memos.data.repo.MemoRepository
+import nu.bacher.memos.BuildConfig
+import nu.bacher.memos.R
+import nu.bacher.memos.data.db.MemoDao
 import nu.bacher.memos.data.repo.ReminderRepository
 import nu.bacher.memos.reminder.notify.NotificationHelper
 import nu.bacher.memos.util.currentTimeMillis
@@ -17,11 +19,11 @@ import org.koin.core.component.inject
 
 class AlarmReceiver : BroadcastReceiver(), KoinComponent {
 
-    private val memoRepo: MemoRepository by inject()
+    private val memoDao: MemoDao by inject()
     private val reminderRepo: ReminderRepository by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
-        Log.d(TAG, "onReceive action=${intent.action}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "onReceive action=${intent.action}")
         val memoName = intent.getStringExtra(AlarmScheduler.EXTRA_MEMO_NAME) ?: return
         when (intent.action) {
             AlarmScheduler.ACTION_FIRE -> handleFire(context, memoName)
@@ -33,10 +35,15 @@ class AlarmReceiver : BroadcastReceiver(), KoinComponent {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val snippet = runCatching { memoRepo.get(memoName).content }
+                // Read the snippet from the local cache, never the network.
+                // goAsync() gives this receiver on the order of ten seconds;
+                // a request that stalls would blow that budget and the user
+                // would simply never get the reminder they asked for.
+                val snippet = runCatching { memoDao.get(memoName)?.content }
                     .getOrNull()
-                    ?.take(140)
-                    ?: "Reminder"
+                    ?.takeIf { it.isNotBlank() }
+                    ?.take(SNIPPET_CHARS)
+                    ?: context.getString(R.string.notification_reminder_fallback)
                 NotificationHelper.show(context, memoName, snippet)
                 reminderRepo.clear(memoName)
             } finally {
@@ -63,6 +70,7 @@ class AlarmReceiver : BroadcastReceiver(), KoinComponent {
 
     private companion object {
         const val TAG = "AlarmReceiver"
+        const val SNIPPET_CHARS = 140
         const val SNOOZE_INTERVAL_MS = 24L * 60 * 60 * 1000
     }
 }

@@ -55,14 +55,22 @@ fun MemosNavHost(
     //      without dropping the deep link.
     LaunchedEffect(authState, launch) {
         val auth = authState ?: return@LaunchedEffect
-        val target: Any = when {
-            !auth -> Login
-            launch is NavLaunch.NewMemo -> MemoEdit(name = null, initial = launch.initialContent)
-            launch is NavLaunch.OpenMemo -> MemoEdit(name = launch.memoName)
-            else -> MemoList
+        if (!auth) {
+            // Signed out: the stack may hold screens this user can't see.
+            navController.navigate(Login) { popUpTo(0) { inclusive = true } }
+            return@LaunchedEffect
         }
-        navController.navigate(target) {
-            popUpTo(0) { inclusive = true }
+        // Signed in. Rebuild the stack with the list at its root, then push
+        // the deep-link destination on top of it — so Back from a memo opened
+        // by a notification or share lands on the list rather than dropping
+        // the user out of the app.
+        navController.navigate(MemoList) { popUpTo(0) { inclusive = true } }
+        when (launch) {
+            is NavLaunch.NewMemo ->
+                navController.navigate(MemoEdit(name = null, initial = launch.initialContent))
+            is NavLaunch.OpenMemo ->
+                navController.navigate(MemoEdit(name = launch.memoName))
+            NavLaunch.None -> Unit
         }
     }
 

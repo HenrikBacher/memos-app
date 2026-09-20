@@ -13,6 +13,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.play.publisher)
     alias(libs.plugins.aboutlibraries)
+    alias(libs.plugins.baselineprofile)
 }
 
 val releaseKeystorePath: String? = System.getenv("ANDROID_KEYSTORE_PATH")
@@ -121,6 +122,12 @@ dependencies {
     implementation(libs.coil.network.ktor3)
 
     implementation(libs.androidx.paging.compose)
+
+    testImplementation(libs.kotlin.test.junit)
+
+    // Installs the generated baseline profile into the APK/AAB at build time.
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
 }
 
 play {

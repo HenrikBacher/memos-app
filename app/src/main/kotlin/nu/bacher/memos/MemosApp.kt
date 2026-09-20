@@ -14,12 +14,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.api.buildImageHttpClient
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.MemoDao
+import nu.bacher.memos.data.db.ReminderDao
+import nu.bacher.memos.data.db.importLegacyReminders
 import nu.bacher.memos.di.androidPlatformModule
 import nu.bacher.memos.di.appModule
 import nu.bacher.memos.di.commonModule
@@ -34,10 +35,16 @@ class MemosApp : Application(), SingletonImageLoader.Factory {
     private val authStore: AuthStore by inject()
     private val httpEngine: HttpClientEngineFactory<*> by inject()
     private val memoDao: MemoDao by inject()
+    private val reminderDao: ReminderDao by inject()
 
     // Long-lived scope for app-process background work (currently just widget
     // sync). SupervisorJob keeps a single failure from killing the whole scope.
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private companion object {
+        /** Must match MemosWidget.MAX_ROWS — the observer and the render agree. */
+        const val WIDGET_ROWS = 8
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -58,20 +65,26 @@ class MemosApp : Application(), SingletonImageLoader.Factory {
             )
         }
         NotificationHelper.createChannels(this)
+        // One-time rescue of reminders from the pre-split database. Safe to
+        // run on every start — it short-circuits once it has completed.
+        appScope.launch { importLegacyReminders(this@MemosApp, reminderDao) }
         observeMemosForWidget()
     }
 
     /**
      * Push a widget refresh whenever the memo cache changes so the home-screen
-     * widget stays in sync with the in-app list. We project to just the fields
-     * the widget renders before distinctUntilChanged so identical previews
-     * don't churn the widget (Room rewrites cachedAtEpochMs on every refresh).
-     * The initial emission is dropped — Glance renders on attach already.
+     * widget stays in sync with the in-app list.
+     *
+     * The query projects to just the columns the widget renders and caps the
+     * row count in SQL, so this long-lived observer doesn't re-materialise
+     * every cached memo (full markdown content included) on each cache write.
+     * distinctUntilChanged then swallows updates that don't change what the
+     * widget shows — Room rewrites cachedAtEpochMs on every refresh. The
+     * initial emission is dropped: Glance renders on attach already.
      */
     private fun observeMemosForWidget() {
         appScope.launch {
-            memoDao.observeAll()
-                .map { rows -> rows.map { it.name to it.content } }
+            memoDao.observeWidgetMemos(WIDGET_ROWS)
                 .distinctUntilChanged()
                 .drop(1)
                 .onEach { MemosWidget().updateAll(this@MemosApp) }

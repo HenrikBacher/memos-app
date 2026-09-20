@@ -17,6 +17,24 @@ interface MemoDao {
     suspend fun getAll(): List<MemoEntity>
 
     /**
+     * Name + content of the most recent active memos, for the home-screen
+     * widget. A projection with a LIMIT rather than the whole table: the
+     * widget renders a handful of rows, and the observing query runs for the
+     * lifetime of the process on every cache write.
+     */
+    @Query(
+        "SELECT name, content FROM memos WHERE COALESCE(state, 'NORMAL') != 'ARCHIVED' " +
+            "ORDER BY orderInList ASC LIMIT :limit",
+    )
+    fun observeWidgetMemos(limit: Int): Flow<List<WidgetMemoRow>>
+
+    @Query(
+        "SELECT name, content FROM memos WHERE COALESCE(state, 'NORMAL') != 'ARCHIVED' " +
+            "ORDER BY orderInList ASC LIMIT :limit",
+    )
+    suspend fun widgetMemos(limit: Int): List<WidgetMemoRow>
+
+    /**
      * Paging source backing the list screen, scoped to one lifecycle state.
      * Same ORDER BY as [observeAll] so the local cache renders in the server's
      * chosen order (pinned/displayTime etc. are baked into

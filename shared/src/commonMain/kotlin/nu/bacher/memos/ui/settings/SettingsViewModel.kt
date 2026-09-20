@@ -9,7 +9,6 @@ import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.settings.ThemeMode
 import nu.bacher.memos.data.settings.ThemePreferences
-import nu.bacher.memos.data.settings.ThemeSettings
 
 class SettingsViewModel(
     private val themePrefs: ThemePreferences,
@@ -36,7 +35,4 @@ class SettingsViewModel(
         viewModelScope.launch { memoRepo.clearCache() }
         authStore.clear()
     }
-
-    @Suppress("unused")
-    fun currentTheme(): ThemeSettings = themePrefs.read()
 }
