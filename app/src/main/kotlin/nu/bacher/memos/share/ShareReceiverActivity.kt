@@ -65,8 +65,11 @@ class ShareReceiverActivity : ComponentActivity() {
         lifecycleScope.launch {
             val msg = try {
                 val attachments = streams.map { uri ->
-                    val source = attachmentSourceFor(this@ShareReceiverActivity, uri)
-                        ?: error("could not read shared stream $uri")
+                    val source = attachmentSourceFor(
+                        context = this@ShareReceiverActivity,
+                        uri = uri,
+                        sizeLimit = MemoEditViewModel.MAX_ATTACHMENT_BYTES,
+                    ) ?: error("could not read shared stream $uri")
                     check(source.byteCount <= MemoEditViewModel.MAX_ATTACHMENT_BYTES) {
                         "shared file exceeds attachment size limit"
                     }

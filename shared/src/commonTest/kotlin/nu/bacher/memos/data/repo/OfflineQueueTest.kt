@@ -99,9 +99,11 @@ class OfflineQueueTest {
         repo.syncPending()
 
         // Queue is empty (action dropped). Cache row stays as the user's
-        // record of what they intended — refresh will reconcile.
+        // record of what they intended, flagged so it neither masquerades as
+        // synced nor gets re-adopted by the orphan sweep.
         assertEquals(0, pending.rows.size)
         assertEquals(1, dao.getAll().size)
+        assertTrue(dao.getAll().single().syncFailed)
     }
 
     @Test
@@ -149,6 +151,7 @@ class OfflineQueueTest {
         assertEquals(0, pending.rows.size, "poison action should be dropped at the cap")
         // Optimistic temp row stays as the user's record of what they wrote.
         assertEquals(1, dao.getAll().size)
+        assertTrue(dao.getAll().single().syncFailed)
     }
 
     @Test

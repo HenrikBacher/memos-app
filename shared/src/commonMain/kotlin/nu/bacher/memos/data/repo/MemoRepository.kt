@@ -63,6 +63,13 @@ class MemoRepository(
     val pendingNames: Flow<Set<String>>
         get() = pendingActionDao.observePendingNames().mapFlow { it.toSet() }
 
+    /**
+     * Memos whose queued write was abandoned and will not be retried. The list
+     * badges these so an unsyncable memo doesn't read as saved.
+     */
+    val syncFailedNames: Flow<Set<String>>
+        get() = dao.observeSyncFailedNames().mapFlow { it.toSet() }
+
     // Match initialLoadSize to one server page so the first network call
     // delivers a full screen without the mediator immediately issuing an APPEND.
     private val pagingConfig = PagingConfig(
@@ -76,12 +83,16 @@ class MemoRepository(
      * Stream of memos paged from the local cache and refilled by the
      * RemoteMediator on demand. Construct one Pager per call so each consumer
      * gets its own paging state; the DAO/PagingSource is shared.
+     *
+     * [archived] selects the lifecycle state end to end — the DAO query, the
+     * server filter, and which rows a refresh may evict — so both views page
+     * properly instead of one filtering the other's results away.
      */
-    val memosPagingData: Flow<PagingData<MemoDto>>
-        get() = Pager(
+    fun memosPagingData(archived: Boolean = false): Flow<PagingData<MemoDto>> =
+        Pager(
             config = pagingConfig,
-            remoteMediator = MemosRemoteMediator(api = api, dao = dao),
-            pagingSourceFactory = { dao.pagingSource() },
+            remoteMediator = MemosRemoteMediator(api = api, dao = dao, archived = archived),
+            pagingSourceFactory = { dao.pagingSource(archived) },
         ).flow.mapFlow { it.map { entity -> entity.toDto() } }
 
     /**
@@ -120,8 +131,8 @@ class MemoRepository(
                             tag = escapedTag,
                             limit = CACHED_SEARCH_LIMIT,
                         ).map { it.toDto() }
-                            .also { servedFromCache.value = true }
                     },
+                    onServedFromCache = { servedFromCache.value = it },
                 )
             },
         ).flow
@@ -374,8 +385,9 @@ class MemoRepository(
 
         for (action in actions) {
             val type = PendingActionType.fromStored(action.type) ?: run {
-                // Unknown type — corrupt row, drop it.
-                pendingActionDao.deleteById(action.id)
+                // Unknown type — corrupt row, drop it (and its temp row, which
+                // would otherwise be re-adopted by the orphan sweep).
+                dropAction(action)
                 continue
             }
             val outcome = runCatching { applyPending(action, type) }
@@ -386,9 +398,8 @@ class MemoRepository(
             val error = outcome.exceptionOrNull()!!
             if (error is CancellationException) throw error
             if (!error.isRetriable()) {
-                // Server says no — drop and move on. The optimistic cache
-                // write stays; the next refresh will reconcile.
-                pendingActionDao.deleteById(action.id)
+                // Server says no — drop and move on.
+                dropAction(action)
                 continue
             }
             // Transient. Only server-reached failures (5xx) count toward the
@@ -397,7 +408,7 @@ class MemoRepository(
                 if (error.burnsSyncBudget()) action.attempts + 1 else action.attempts
             if (attempts >= MAX_SYNC_ATTEMPTS) {
                 // Poison — drop it and let the rest of the queue through.
-                pendingActionDao.deleteById(action.id)
+                dropAction(action)
                 continue
             }
             pendingActionDao.update(
@@ -434,6 +445,30 @@ class MemoRepository(
             enqueuePendingCreate(row.name, row.content, row.visibility, attachments)
         }
         return orphans.isNotEmpty()
+    }
+
+    /**
+     * Abandons a queued action for good.
+     *
+     * A temp-named CREATE leaves its cache row in place — it is the user's
+     * only copy of what they wrote — but flags it [MemoEntity.syncFailed].
+     * Without the flag [reconcileOrphanTempCreates] would adopt the row (a
+     * temp row with no queued action) and re-enqueue the very CREATE we just
+     * abandoned, on every sync, forever. Deleting the row instead would break
+     * the loop by throwing the memo away, which is not ours to do.
+     *
+     * (Before temp rows survived [MemoDao.replaceAll], the next refresh wiped
+     * the row and hid both problems.)
+     *
+     * Other action types leave the cache alone: an UPDATE or DELETE the server
+     * rejected still has a real server-backed row behind it, and the next
+     * refresh reconciles it.
+     */
+    private suspend fun dropAction(action: PendingActionEntity) {
+        pendingActionDao.deleteById(action.id)
+        if (LocalMemoName.isLocal(action.memoName)) {
+            dao.setSyncFailed(action.memoName, true)
+        }
     }
 
     private suspend fun applyPending(action: PendingActionEntity, type: PendingActionType) {
@@ -589,6 +624,9 @@ class MemoRepository(
             pinned = pinned ?: prior.pinned,
             attachmentsJson = encodeAttachments(newAttachments),
             cachedAtEpochMs = currentTimeMillis(),
+            // Re-queuing below makes this live again; editing an abandoned
+            // memo is the user's way to retry it.
+            syncFailed = false,
         )
         withContext(NonCancellable) {
             dao.upsert(optimistic)

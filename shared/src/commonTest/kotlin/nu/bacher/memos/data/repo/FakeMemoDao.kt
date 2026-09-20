@@ -12,9 +12,11 @@ import nu.bacher.memos.data.db.MemoEntity
  * In-memory fake of [MemoDao] for repository tests. Uses [MutableStateFlow]
  * so `observeAll()` emits on changes the same way Room's flow does.
  *
- * The interface's `@Transaction replaceAll(...)` default body calls
- * [clear] + [upsertAll]; we let that pass through so the fake exercises the
- * same code path real Room runs in production.
+ * The interface's `@Transaction` default bodies (`replaceAll`, `appendAll`,
+ * `insertAtTop`) are inherited, not overridden, so the fake exercises the same
+ * composition of primitives that real Room runs — including `replaceAll`
+ * delegating to [deleteSynced], which is what keeps unsynced temp rows alive
+ * across a refresh.
  */
 class FakeMemoDao : MemoDao {
     private val state = MutableStateFlow<List<MemoEntity>>(emptyList())
@@ -25,7 +27,7 @@ class FakeMemoDao : MemoDao {
     override suspend fun getAll(): List<MemoEntity> =
         state.value.sortedBy { it.orderInList }
 
-    override fun pagingSource(): PagingSource<Int, MemoEntity> =
+    override fun pagingSource(archived: Boolean): PagingSource<Int, MemoEntity> =
         // Repository tests don't exercise paging; a fake PagingSource here
         // would just be dead code. Tests that need this can override per
         // case.
@@ -42,8 +44,19 @@ class FakeMemoDao : MemoDao {
 
     override suspend fun tempRowsOlderThan(tempPrefix: String, cutoff: Long): List<MemoEntity> =
         state.value
-            .filter { it.name.startsWith(tempPrefix) && it.cachedAtEpochMs < cutoff }
+            .filter {
+                it.name.startsWith(tempPrefix) && it.cachedAtEpochMs < cutoff && !it.syncFailed
+            }
             .sortedBy { it.orderInList }
+
+    override fun observeSyncFailedNames(): Flow<List<String>> =
+        state.map { rows -> rows.filter { it.syncFailed }.map { it.name } }
+
+    override suspend fun setSyncFailed(name: String, failed: Boolean) {
+        state.update { current ->
+            current.map { if (it.name == name) it.copy(syncFailed = failed) else it }
+        }
+    }
 
     override suspend fun searchCached(query: String, tag: String?, limit: Int): List<MemoEntity> {
         // The real query is SQL LIKE with an ESCAPE clause; the fake does a
@@ -61,8 +74,12 @@ class FakeMemoDao : MemoDao {
             .take(limit)
     }
 
-    override suspend fun deleteSynced(tempPrefix: String) {
-        state.update { current -> current.filter { it.name.startsWith(tempPrefix) } }
+    override suspend fun deleteSynced(tempPrefix: String, archived: Boolean) {
+        state.update { current ->
+            current.filter { row ->
+                row.name.startsWith(tempPrefix) || row.isArchived() != archived
+            }
+        }
     }
 
     override suspend fun upsert(memo: MemoEntity) {
@@ -89,3 +106,6 @@ class FakeMemoDao : MemoDao {
         }
     }
 }
+
+/** Mirrors the DAO's `COALESCE(state, 'NORMAL') = 'ARCHIVED'`. */
+private fun MemoEntity.isArchived(): Boolean = (state ?: "NORMAL") == "ARCHIVED"

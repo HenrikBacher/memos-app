@@ -30,6 +30,12 @@ class MemoApiPagingSource(
     private val api: MemosApi,
     private val filter: String?,
     private val offlineFallback: suspend () -> List<MemoDto>,
+    /**
+     * Reports whether the page just produced came from the cache. Called on
+     * every terminal outcome — including success and error — so a stale
+     * "offline" notice can't outlive the condition that caused it.
+     */
+    private val onServedFromCache: (Boolean) -> Unit,
 ) : PagingSource<String, MemoDto>() {
 
     override fun getRefreshKey(state: PagingState<String, MemoDto>): String? = null
@@ -41,6 +47,7 @@ class MemoApiPagingSource(
                 pageToken = params.key,
                 filter = filter,
             )
+            onServedFromCache(false)
             LoadResult.Page(
                 data = response.memos,
                 prevKey = null,
@@ -51,9 +58,13 @@ class MemoApiPagingSource(
             if (params.key == null && t.classify() == ErrorKind.NETWORK) {
                 val cached = offlineFallback()
                 if (cached.isNotEmpty()) {
+                    onServedFromCache(true)
                     return LoadResult.Page(data = cached, prevKey = null, nextKey = null)
                 }
             }
+            // Nothing cached to show either — this is a plain error, and the
+            // UI must not also claim it is showing cached results.
+            onServedFromCache(false)
             LoadResult.Error(t)
         }
     }

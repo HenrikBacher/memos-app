@@ -114,8 +114,12 @@ fun MemoEditScreen(
     val handlePicked: (Uri?) -> Unit = { uri ->
         if (uri != null) {
             scope.launch {
-                val source = attachmentSourceFor(context, uri)
-                if (source != null) vm.addAttachment(source)
+                val source = attachmentSourceFor(
+                    context = context,
+                    uri = uri,
+                    sizeLimit = MemoEditViewModel.MAX_ATTACHMENT_BYTES,
+                )
+                if (source != null) vm.addAttachment(source) else vm.reportUnreadableAttachment()
             }
         }
     }
@@ -125,21 +129,23 @@ fun MemoEditScreen(
     LaunchedEffect(memoName, initialContent, startInEditMode) {
         vm.load(memoName, initialContent, startInEditMode)
     }
+    // Resolved in composable scope so they track configuration changes;
+    // LaunchedEffect and onClick bodies can't call stringResource themselves.
+    val savedMessage = stringResource(R.string.edit_saved)
+    val shareChooserTitle = stringResource(R.string.edit_share_chooser)
+    val errorMessage = state.error?.let { stringResource(it.messageRes()) }
+
     LaunchedEffect(state.finished) {
         if (state.finished) {
             // Toast (not Snackbar) so the confirmation survives the screen pop.
             if (state.savedSuccess) {
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.edit_saved),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                Toast.makeText(context, savedMessage, Toast.LENGTH_SHORT).show()
             }
             onBack()
         }
     }
-    LaunchedEffect(state.error) {
-        state.error?.let { snackbarHostState.showSnackbar(context.getString(it.messageRes())) }
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let { snackbarHostState.showSnackbar(it) }
     }
 
     // Only intercept when we'd otherwise lose unsaved work — lets predictive
@@ -223,10 +229,7 @@ fun MemoEditScreen(
                                             putExtra(Intent.EXTRA_TEXT, url)
                                         }
                                         context.startActivity(
-                                            Intent.createChooser(
-                                                send,
-                                                context.getString(R.string.edit_share_chooser),
-                                            ),
+                                            Intent.createChooser(send, shareChooserTitle),
                                         )
                                     },
                                 )
@@ -561,6 +564,7 @@ private fun MemoEditViewModel.EditError.messageRes(): Int = when (this) {
     MemoEditViewModel.EditError.AUTH -> R.string.edit_error_auth
     MemoEditViewModel.EditError.BUSY -> R.string.error_server_busy
     MemoEditViewModel.EditError.FILE_TOO_LARGE -> R.string.edit_error_file_too_large
+    MemoEditViewModel.EditError.FILE_UNREADABLE -> R.string.edit_error_file_unreadable
     MemoEditViewModel.EditError.ATTACHMENT_OFFLINE -> R.string.edit_error_attachment_offline
     MemoEditViewModel.EditError.GENERIC -> R.string.edit_error_generic
 }

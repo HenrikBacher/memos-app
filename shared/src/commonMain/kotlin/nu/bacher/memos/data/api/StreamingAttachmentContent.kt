@@ -44,6 +44,7 @@ internal class StreamingAttachmentContent(
 
         val source: Source = openSource().buffered()
         val buf = ByteArray(CHUNK_BYTES)
+        var written = 0L
         try {
             while (true) {
                 var filled = 0
@@ -54,10 +55,22 @@ internal class StreamingAttachmentContent(
                 }
                 if (filled == 0) break
                 channel.writeFully(Base64.encode(buf, 0, filled).encodeToByteArray())
+                written += filled
                 if (filled < CHUNK_BYTES) break
             }
         } finally {
             source.close()
+        }
+
+        // [byteCount] is a *declared* size (a ContentProvider's SIZE column or
+        // a file descriptor's length) and [contentLength] was computed from it
+        // before a single byte was read. If the source turns out to disagree —
+        // a stale SIZE, a file rewritten between pick and upload, a provider
+        // that transcodes on open — the request body no longer matches the
+        // Content-Length we promised, and the server sees a truncated or
+        // over-long upload. Fail loudly here instead.
+        check(written == byteCount) {
+            "attachment source produced $written bytes, expected $byteCount"
         }
 
         channel.writeFully(SUFFIX)

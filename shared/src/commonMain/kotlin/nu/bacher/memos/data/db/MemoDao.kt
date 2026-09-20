@@ -17,12 +17,25 @@ interface MemoDao {
     suspend fun getAll(): List<MemoEntity>
 
     /**
-     * Paging source backing the list screen. Same ORDER BY as [observeAll] so
-     * the local cache renders in the server's chosen order (pinned/displayTime
-     * etc. are baked into [MemoEntity.orderInList] at insert time).
+     * Paging source backing the list screen, scoped to one lifecycle state.
+     * Same ORDER BY as [observeAll] so the local cache renders in the server's
+     * chosen order (pinned/displayTime etc. are baked into
+     * [MemoEntity.orderInList] at insert time).
+     *
+     * Splitting archived from active here rather than filtering the loaded
+     * `PagingData` keeps every emitted page full: a client-side filter can
+     * empty a page entirely, and Paging only requests more pages in response
+     * to item access — so an all-filtered first page reads as "no results"
+     * and never pages forward.
+     *
+     * `state` is nullable on rows cached before the column carried a value;
+     * those are active memos.
      */
-    @Query("SELECT * FROM memos ORDER BY orderInList ASC")
-    fun pagingSource(): PagingSource<Int, MemoEntity>
+    @Query(
+        "SELECT * FROM memos WHERE (COALESCE(state, 'NORMAL') = 'ARCHIVED') = :archived " +
+            "ORDER BY orderInList ASC",
+    )
+    fun pagingSource(archived: Boolean): PagingSource<Int, MemoEntity>
 
     @Query("SELECT * FROM memos WHERE name = :name LIMIT 1")
     suspend fun get(name: String): MemoEntity?
@@ -44,9 +57,16 @@ interface MemoDao {
      */
     @Query(
         "SELECT * FROM memos WHERE name LIKE :tempPrefix || '%' AND cachedAtEpochMs < :cutoff " +
-            "ORDER BY orderInList ASC",
+            "AND syncFailed = 0 ORDER BY orderInList ASC",
     )
     suspend fun tempRowsOlderThan(tempPrefix: String, cutoff: Long): List<MemoEntity>
+
+    /** Names of rows whose queued write was abandoned. Drives the list badge. */
+    @Query("SELECT name FROM memos WHERE syncFailed != 0")
+    fun observeSyncFailedNames(): Flow<List<String>>
+
+    @Query("UPDATE memos SET syncFailed = :failed WHERE name = :name")
+    suspend fun setSyncFailed(name: String, failed: Boolean)
 
     /**
      * Offline fallback for search — a LIKE scan of the cached content, used
@@ -79,9 +99,16 @@ interface MemoDao {
     @Query("DELETE FROM memos")
     suspend fun clear()
 
-    /** Deletes every row *except* the client-side temp rows. See [replaceAll]. */
-    @Query("DELETE FROM memos WHERE name NOT LIKE :tempPrefix || '%'")
-    suspend fun deleteSynced(tempPrefix: String)
+    /**
+     * Deletes the server-backed rows of one lifecycle state, leaving the
+     * client-side temp rows (and the other state's rows) alone. See
+     * [replaceAll].
+     */
+    @Query(
+        "DELETE FROM memos WHERE name NOT LIKE :tempPrefix || '%' " +
+            "AND (COALESCE(state, 'NORMAL') = 'ARCHIVED') = :archived",
+    )
+    suspend fun deleteSynced(tempPrefix: String, archived: Boolean)
 
     @Query("UPDATE memos SET orderInList = orderInList + 1 WHERE name != :exceptName")
     suspend fun shiftOrderExcept(exceptName: String)
@@ -98,15 +125,20 @@ interface MemoDao {
      * renumbered to the top and the server page continues the sequence after
      * them, matching where `insertAtTop` originally put them.
      *
-     * After [deleteSynced] the only rows left *are* those temp rows, so
-     * [getAll] reads them back without needing a second prefix-scoped query.
+     * [archived] scopes the swap to one lifecycle state: the active and
+     * archived views page independently over the same table, so refreshing
+     * one must not evict the other's cached rows.
+     *
+     * Ordering is rebuilt over the surviving rows so the sequence stays
+     * monotonic for the paging cursor, with temp rows kept at the top where
+     * `insertAtTop` put them.
      */
     @Transaction
-    suspend fun replaceAll(memos: List<MemoEntity>, tempPrefix: String) {
-        deleteSynced(tempPrefix)
-        val temps = getAll()
-        upsertAll(temps.mapIndexed { i, row -> row.copy(orderInList = i) })
-        upsertAll(memos.mapIndexed { i, m -> m.copy(orderInList = temps.size + i) })
+    suspend fun replaceAll(memos: List<MemoEntity>, tempPrefix: String, archived: Boolean) {
+        deleteSynced(tempPrefix, archived)
+        val kept = getAll()
+        upsertAll(kept.mapIndexed { i, row -> row.copy(orderInList = i) })
+        upsertAll(memos.mapIndexed { i, m -> m.copy(orderInList = kept.size + i) })
     }
 
     /**

@@ -31,6 +31,7 @@ val publisherCredentialsPath: String? = System.getenv("ANDROID_PUBLISHER_CREDENT
 android {
     namespace = "nu.bacher.memos"
     compileSdk = 37
+    buildToolsVersion = libs.versions.buildTools.get()
 
     defaultConfig {
         applicationId = "nu.bacher.memos"

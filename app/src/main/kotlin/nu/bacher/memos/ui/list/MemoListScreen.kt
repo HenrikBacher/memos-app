@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -565,6 +566,7 @@ private fun RowMemoCard(
         attachments = row.memo.attachments,
         reminder = row.reminder,
         pendingSync = row.pendingSync,
+        syncFailed = row.syncFailed,
         pinned = row.memo.pinned,
         selected = row.memo.name in selectedNames,
         onClick = { onOpenMemo(row.memo.name) },
@@ -607,6 +609,7 @@ private fun MemoCard(
     attachments: List<AttachmentDto>,
     reminder: ReminderEntity?,
     pendingSync: Boolean,
+    syncFailed: Boolean,
     pinned: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -638,7 +641,14 @@ private fun MemoCard(
                 )
                 Spacer(Modifier.height(6.dp))
             }
-            if (pendingSync) {
+            if (syncFailed) {
+                CardLabel(
+                    icon = Icons.Filled.ErrorOutline,
+                    text = stringResource(R.string.list_sync_failed),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(6.dp))
+            } else if (pendingSync) {
                 CardLabel(Icons.Filled.CloudOff, stringResource(R.string.list_sync_pending))
                 Spacer(Modifier.height(6.dp))
             }

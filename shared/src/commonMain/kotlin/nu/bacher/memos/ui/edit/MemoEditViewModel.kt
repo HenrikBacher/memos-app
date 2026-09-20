@@ -36,6 +36,9 @@ class MemoEditViewModel(
         BUSY,
         FILE_TOO_LARGE,
 
+        /** The picked URI could not be read at all (revoked grant, dead provider). */
+        FILE_UNREADABLE,
+
         /**
          * An attachment upload failed because the network was down. Distinct
          * from [NETWORK] because text memos queue for replay offline and
@@ -190,6 +193,11 @@ class MemoEditViewModel(
                 },
             )
         }
+    }
+
+    /** Reports a pick that couldn't be read, so the UI doesn't just do nothing. */
+    fun reportUnreadableAttachment() {
+        _state.update { it.copy(error = EditError.FILE_UNREADABLE) }
     }
 
     fun removeAttachment(name: String) {

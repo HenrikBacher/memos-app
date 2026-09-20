@@ -65,6 +65,8 @@ class MemoListViewModel(
         val reminder: ReminderEntity?,
         /** True when this memo has an unsynced create/update/delete queued. */
         val pendingSync: Boolean = false,
+        /** True when the queued write was abandoned and won't be retried. */
+        val syncFailed: Boolean = false,
     )
     data class State(
         val tags: List<String> = emptyList(),
@@ -94,6 +96,7 @@ class MemoListViewModel(
             .map { list -> list.associateBy { it.memoName } }
             .distinctUntilChanged()
     private val pendingNames: Flow<Set<String>> = memoRepo.pendingNames
+    private val syncFailedNames: Flow<Set<String>> = memoRepo.syncFailedNames
 
     /**
      * Tag set is derived from the *cached* memos (whatever pages are in the
@@ -171,27 +174,47 @@ class MemoListViewModel(
      * whenever the query mode flips. cachedIn lets the screen survive config
      * changes.
      */
+    /**
+     * What the paging stream is built from. Collapsed to a value so an input
+     * the active mode ignores can't tear the stream down: while a search is
+     * running the server filter already owns tag and state, so toggling either
+     * must not cancel and re-issue the query.
+     */
+    private data class PageKey(
+        val search: MemoRepository.SearchStream?,
+        val archived: Boolean,
+        val tag: String?,
+    )
+
+    private val pageKey: Flow<PageKey> =
+        combine(searchStream, showArchived, selectedTag) { search, archived, tag ->
+            if (search != null) PageKey(search, archived = false, tag = null)
+            else PageKey(null, archived, tag)
+        }.distinctUntilChanged()
+
     val memos: Flow<PagingData<Row>> =
         combine(
-            searchStream,
-            selectedTag,
+            pageKey,
             reminderMap,
             pendingNames,
-            showArchived,
-        ) { search, tag, reminders, pending, archived ->
-            // Cached path applies [tag] client-side over loaded pages (the
-            // server doesn't know about tags) and splits archived from active.
-            // Search spans both states on purpose — an explicit query is how
-            // you find an old archived note.
-            val source: Flow<PagingData<MemoDto>> = search?.pages
-                ?: memoRepo.memosPagingData.map { paging ->
-                    paging.filter { memo ->
-                        (memo.state == MemoState.ARCHIVED) == archived && tagMatches(memo, tag)
-                    }
+            syncFailedNames,
+        ) { key, reminders, pending, failed ->
+            // The cached path is already scoped to one lifecycle state by the
+            // DAO and the mediator; only [tag] is applied client-side, because
+            // the server doesn't know about tags. Search spans both states on
+            // purpose — an explicit query is how you find an archived note.
+            val source: Flow<PagingData<MemoDto>> = key.search?.pages
+                ?: memoRepo.memosPagingData(key.archived).map { paging ->
+                    paging.filter { memo -> tagMatches(memo, key.tag) }
                 }
             source.map { paging ->
                 paging.map { memo ->
-                    Row(memo, reminders[memo.name], pendingSync = memo.name in pending)
+                    Row(
+                        memo = memo,
+                        reminder = reminders[memo.name],
+                        pendingSync = memo.name in pending,
+                        syncFailed = memo.name in failed,
+                    )
                 }
             }
         }.flatMapLatest { it }.cachedIn(viewModelScope)

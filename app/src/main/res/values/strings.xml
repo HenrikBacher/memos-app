@@ -117,9 +117,11 @@
     <string name="edit_error_auth">Your session expired. Sign in again.</string>
     <string name="edit_error_generic">Something went wrong. Try again.</string>
     <string name="edit_error_file_too_large">File is too large (max 20 MB).</string>
+    <string name="edit_error_file_unreadable">That file couldn\'t be read. Try picking it again.</string>
     <string name="edit_error_attachment_offline">Attachments need a connection — this one wasn\'t uploaded.</string>
 
     <string name="list_sync_pending">Sync pending</string>
+    <string name="list_sync_failed">Couldn\'t sync — edit to retry</string>
 
     <string name="reminder_now">now</string>
     <string name="reminder_in_minutes">in %1$d min</string>

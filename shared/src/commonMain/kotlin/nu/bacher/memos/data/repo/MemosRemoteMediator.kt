@@ -35,10 +35,24 @@ import nu.bacher.memos.util.currentTimeMillis
 class MemosRemoteMediator(
     private val api: MemosApi,
     private val dao: MemoDao,
+    /**
+     * Which lifecycle state to page. memos' ListMemos returns only active
+     * memos unless asked otherwise, so the archive view has to say so on the
+     * wire — filtering the response client-side would page forever through
+     * memos that are never archived.
+     */
+    private val archived: Boolean,
 ) : RemoteMediator<Int, MemoEntity>() {
 
     @Volatile
     private var nextPageToken: String? = null
+
+    /**
+     * memos v1 filter expression selecting the state this mediator pages.
+     * Same CEL-ish grammar as the search filter in `buildSearchFilter`.
+     */
+    private fun stateFilter(): String =
+        if (archived) "state == \"ARCHIVED\"" else "state == \"NORMAL\""
 
     override suspend fun initialize(): InitializeAction =
         // Always refresh on attach: the cache may be stale across launches and
@@ -65,14 +79,20 @@ class MemosRemoteMediator(
         }
 
         return try {
-            val response = api.listMemos(pageToken = pageToken)
+            val response = api.listMemos(pageToken = pageToken, filter = stateFilter())
             val now = currentTimeMillis()
 
             // Both DAO entry points assign orderInList themselves, so the
             // value here is a placeholder either way.
             val entities = response.memos.map { it.toEntity(orderInList = 0, cachedAtEpochMs = now) }
             if (loadType == LoadType.REFRESH) {
-                dao.replaceAll(memos = entities, tempPrefix = LocalMemoName.PREFIX)
+                // A refresh of one state must not evict the other's cached
+                // rows — the two views share the table.
+                dao.replaceAll(
+                    memos = entities,
+                    tempPrefix = LocalMemoName.PREFIX,
+                    archived = archived,
+                )
             } else {
                 dao.appendAll(entities)
             }

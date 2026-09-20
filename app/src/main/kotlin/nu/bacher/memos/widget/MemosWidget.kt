@@ -34,6 +34,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import nu.bacher.memos.MainActivity
 import nu.bacher.memos.R
+import nu.bacher.memos.data.api.MemoState
 import nu.bacher.memos.data.db.MemoDao
 import org.koin.java.KoinJavaComponent.get
 
@@ -53,7 +54,7 @@ class MemosWidget : GlanceAppWidget() {
         val memos = memoDao.getAll()
             .asSequence()
             // Mirror MemoListViewModel: archived stays out of the active view.
-            .filter { it.state != STATE_ARCHIVED }
+            .filter { it.state != MemoState.ARCHIVED }
             .sortedBy { it.orderInList }
             .take(MAX_ROWS)
             .map { WidgetMemo(it.name, it.content.preview()) }
@@ -157,7 +158,6 @@ class MemosWidget : GlanceAppWidget() {
     private companion object {
         const val MAX_ROWS = 8
         const val PREVIEW_CHARS = 90
-        const val STATE_ARCHIVED = "ARCHIVED"
     }
 
     private fun String.preview(): String {

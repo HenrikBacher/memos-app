@@ -13,6 +13,7 @@ kotlin {
         namespace = "nu.bacher.memos.shared"
         compileSdk = 37
         minSdk = 34
+        buildToolsVersion = libs.versions.buildTools.get()
 
         // Opt in to a host (unit) test compilation so the KMP-auto-created
         // commonTest source set has somewhere to attach. Without this the

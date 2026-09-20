@@ -7,7 +7,7 @@ import androidx.room.RoomDatabaseConstructor
 
 @Database(
     entities = [ReminderEntity::class, MemoEntity::class, PendingActionEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 @ConstructedBy(MemosDatabaseConstructor::class)

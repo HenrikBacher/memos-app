@@ -27,4 +27,15 @@ data class MemoEntity(
     val attachmentsJson: String,
     val orderInList: Int,
     val cachedAtEpochMs: Long,
+    /**
+     * Local-only: the queued write for this row was abandoned (the server
+     * rejected it outright, or it exhausted the poison cap), so the row will
+     * never reach the server on its own.
+     *
+     * The row is kept rather than deleted — it is the user's only copy of what
+     * they wrote — but it must be excluded from the orphan sweep, which would
+     * otherwise re-enqueue the very action that was just abandoned, forever.
+     * The list surfaces it so the memo doesn't masquerade as synced.
+     */
+    val syncFailed: Boolean = false,
 )

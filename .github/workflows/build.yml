@@ -41,9 +41,18 @@ jobs:
           # Only the main branch writes to the remote build cache; PR jobs
           # consume but don't pollute it.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          # Encrypts the cached configuration-cache entries at rest. Optional:
+          # without it they are still cached, just unencrypted. Worth setting
+          # because this build reads signing/publishing secrets from the
+          # environment at *configuration* time (see app/build.gradle.kts), so
+          # those values can be serialized into a configuration-cache entry.
+          cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
 
-      - name: Run unit tests
-        run: ./gradlew :shared:testAndroidHostTest
+      # One invocation, not three: Gradle configures once and can run the
+      # independent test/assemble/lint task graphs in parallel, instead of
+      # paying configuration + daemon warm-up per command.
+      - name: Test, build and lint
+        run: ./gradlew :shared:testAndroidHostTest :app:assembleDebug :app:lintDebug
 
       - name: Upload test report on failure
         if: failure()
@@ -53,8 +62,13 @@ jobs:
           path: shared/build/reports/tests/testAndroidHostTest
           if-no-files-found: ignore
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug
+      - name: Upload lint report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
@@ -93,6 +107,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v6.3.0
         with:
           cache-read-only: true
+          # This job is the one that actually has the keystore/publisher
+          # secrets in scope; read-only means it never writes cache entries,
+          # and the key encrypts anything it does read back.
+          cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
 
       - name: Resolve version metadata
         id: version
