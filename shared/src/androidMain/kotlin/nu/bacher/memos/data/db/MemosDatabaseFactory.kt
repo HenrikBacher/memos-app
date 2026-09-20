@@ -25,8 +25,11 @@ fun createMemosDatabase(context: Context): MemosDatabase =
     )
         .setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(Dispatchers.IO)
+        // Covers downgrades as well — it sets allowDestructiveMigrationOnDowngrade
+        // itself. Don't pair it with fallbackToDestructiveMigrationOnDowngrade:
+        // that call sets requireMigration back to true, which turns every
+        // *upgrade* without a Migration into a crash on launch.
         .fallbackToDestructiveMigration(dropAllTables = true)
-        .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
         .build()
 
 /**
