@@ -37,6 +37,34 @@ class FakeMemoDao : MemoDao {
     override suspend fun nextOrderIndex(): Int =
         state.value.maxOfOrNull { it.orderInList }?.let { it + 1 } ?: 0
 
+    override suspend fun unpinnedCount(names: List<String>): Int =
+        state.value.count { it.name in names && !it.pinned }
+
+    override suspend fun tempRowsOlderThan(tempPrefix: String, cutoff: Long): List<MemoEntity> =
+        state.value
+            .filter { it.name.startsWith(tempPrefix) && it.cachedAtEpochMs < cutoff }
+            .sortedBy { it.orderInList }
+
+    override suspend fun searchCached(query: String, tag: String?, limit: Int): List<MemoEntity> {
+        // The real query is SQL LIKE with an ESCAPE clause; the fake does a
+        // plain substring match, which is enough for the repository tests
+        // that exercise the offline-search fallback.
+        val needle = query.replace("\\", "")
+        return state.value
+            .filter { needle.isEmpty() || it.content.contains(needle) }
+            .filter { row ->
+                tag == null ||
+                    row.tagsCsv.split(',').contains(tag) ||
+                    row.content.contains("#" + tag)
+            }
+            .sortedBy { it.orderInList }
+            .take(limit)
+    }
+
+    override suspend fun deleteSynced(tempPrefix: String) {
+        state.update { current -> current.filter { it.name.startsWith(tempPrefix) } }
+    }
+
     override suspend fun upsert(memo: MemoEntity) {
         state.update { current -> current.filterNot { it.name == memo.name } + memo }
     }

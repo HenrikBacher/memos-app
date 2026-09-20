@@ -1,6 +1,9 @@
 <resources>
     <string name="app_name">Memos</string>
 
+    <!-- Shared across login, list and edit — one wording for one condition. -->
+    <string name="error_server_busy">Server is busy. Try again in a moment.</string>
+
     <string name="login_title">Connect to Memos</string>
     <string name="login_server_url">Server URL</string>
     <string name="login_server_hint">https://memos.example.com</string>
@@ -13,7 +16,6 @@
     <string name="login_error_token_required">Enter your access token.</string>
     <string name="login_error_network">Can\'t reach that server. Check the URL and your connection.</string>
     <string name="login_error_auth">That token was rejected. Check it and try again.</string>
-    <string name="login_error_busy">Server is busy. Try again in a moment.</string>
     <string name="login_error_server">The server had a problem. Try again shortly.</string>
     <string name="login_error_generic">Couldn\'t connect. Check the URL and token.</string>
 
@@ -23,7 +25,6 @@
     <string name="list_clear_filter">Clear filter</string>
     <string name="list_error_network">Can\'t reach your server. Check your connection and try again.</string>
     <string name="list_error_auth">Your session expired. Sign in again.</string>
-    <string name="list_error_busy">Server is busy. Try again in a moment.</string>
     <string name="list_error_generic">Something went wrong loading memos.</string>
     <string name="list_retry">Retry</string>
     <string name="list_more_options">More options</string>
@@ -115,7 +116,6 @@
     <string name="edit_error_network">Can\'t reach your server. Check your connection and try again.</string>
     <string name="edit_error_auth">Your session expired. Sign in again.</string>
     <string name="edit_error_generic">Something went wrong. Try again.</string>
-    <string name="edit_error_busy">Server is busy. Try again in a moment.</string>
     <string name="edit_error_file_too_large">File is too large (max 20 MB).</string>
     <string name="edit_error_attachment_offline">Attachments need a connection — this one wasn\'t uploaded.</string>
 

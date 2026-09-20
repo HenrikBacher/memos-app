@@ -10,7 +10,6 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
-import kotlinx.io.RawSource
 
 /**
  * Subset of the memos v1 REST API needed by the app. Endpoints follow the
@@ -54,19 +53,16 @@ class MemosApi(private val client: HttpClient) {
      * stream completes.
      */
     suspend fun createAttachment(
-        filename: String,
-        type: String,
-        byteCount: Long,
+        source: AttachmentSource,
         memo: String? = null,
-        openSource: () -> RawSource,
     ): AttachmentDto = client.post("api/v1/attachments") {
         setBody(
             StreamingAttachmentContent(
-                filename = filename,
-                type = type,
+                filename = source.filename,
+                type = source.mimeType,
                 memo = memo,
-                byteCount = byteCount,
-                openSource = openSource,
+                byteCount = source.byteCount,
+                openSource = source.openSource,
             ),
         )
     }.body()

@@ -127,7 +127,7 @@ private fun LoginViewModel.LoginError.messageRes(): Int = when (this) {
     LoginViewModel.LoginError.TOKEN_REQUIRED -> R.string.login_error_token_required
     LoginViewModel.LoginError.NETWORK -> R.string.login_error_network
     LoginViewModel.LoginError.AUTH -> R.string.login_error_auth
-    LoginViewModel.LoginError.BUSY -> R.string.login_error_busy
+    LoginViewModel.LoginError.BUSY -> R.string.error_server_busy
     LoginViewModel.LoginError.SERVER -> R.string.login_error_server
     LoginViewModel.LoginError.GENERIC -> R.string.login_error_generic
 }

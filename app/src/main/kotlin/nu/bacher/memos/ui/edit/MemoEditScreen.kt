@@ -559,7 +559,7 @@ private fun String.toDisplayLabel(): String = when (this) {
 private fun MemoEditViewModel.EditError.messageRes(): Int = when (this) {
     MemoEditViewModel.EditError.NETWORK -> R.string.edit_error_network
     MemoEditViewModel.EditError.AUTH -> R.string.edit_error_auth
-    MemoEditViewModel.EditError.BUSY -> R.string.edit_error_busy
+    MemoEditViewModel.EditError.BUSY -> R.string.error_server_busy
     MemoEditViewModel.EditError.FILE_TOO_LARGE -> R.string.edit_error_file_too_large
     MemoEditViewModel.EditError.ATTACHMENT_OFFLINE -> R.string.edit_error_attachment_offline
     MemoEditViewModel.EditError.GENERIC -> R.string.edit_error_generic

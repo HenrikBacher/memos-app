@@ -22,6 +22,8 @@ import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import nu.bacher.memos.data.api.AttachmentSource
+import kotlinx.io.Buffer
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.db.MemoEntity
@@ -47,7 +49,7 @@ class MemoRepositoryTest {
             )
         }
         val dao = FakeMemoDao().also {
-            it.replaceAll(listOf(entity("memos/old", order = 0)))
+            it.upsertAll(listOf(entity("memos/old", order = 0)))
         }
         val repo = repo(engine, dao)
 
@@ -101,7 +103,7 @@ class MemoRepositoryTest {
             respond("nope", HttpStatusCode.BadRequest, jsonHeaders())
         }
         val dao = FakeMemoDao().also {
-            it.replaceAll(listOf(entity("memos/old", order = 0)))
+            it.upsertAll(listOf(entity("memos/old", order = 0)))
         }
         val repo = repo(engine, dao)
 
@@ -116,7 +118,7 @@ class MemoRepositoryTest {
     @Test
     fun update_writes_to_cache_first_and_rolls_back_on_non_retriable_failure() = runTest {
         val prior = entity("memos/x", order = 5).copy(content = "old", visibility = "PRIVATE")
-        val dao = FakeMemoDao().also { it.replaceAll(listOf(prior)) }
+        val dao = FakeMemoDao().also { it.upsertAll(listOf(prior)) }
 
         var capturedDuringCall: MemoEntity? = null
         val engine = MockEngine { _ ->
@@ -147,7 +149,7 @@ class MemoRepositoryTest {
     @Test
     fun delete_removes_from_cache_first_and_restores_on_non_retriable_failure() = runTest {
         val prior = entity("memos/x", order = 3)
-        val dao = FakeMemoDao().also { it.replaceAll(listOf(prior)) }
+        val dao = FakeMemoDao().also { it.upsertAll(listOf(prior)) }
 
         var observedDuringCall: List<String> = emptyList()
         val engine = MockEngine { _ ->
@@ -166,7 +168,7 @@ class MemoRepositoryTest {
 
     @Test
     fun delete_succeeds_and_leaves_cache_empty_on_2xx() = runTest {
-        val dao = FakeMemoDao().also { it.replaceAll(listOf(entity("memos/x"))) }
+        val dao = FakeMemoDao().also { it.upsertAll(listOf(entity("memos/x"))) }
         val engine = MockEngine { _ -> respond("", HttpStatusCode.OK, jsonHeaders()) }
         val repo = repo(engine, dao)
 
@@ -194,9 +196,7 @@ class MemoRepositoryTest {
         val repo = repo(engine, FakeMemoDao())
 
         val result = repo.uploadAttachment(
-            bytes = bytes,
-            filename = "a.bin",
-            type = "application/octet-stream",
+            source = attachmentSource(bytes, "a.bin", "application/octet-stream"),
             memoName = "memos/abc",
         )
 
@@ -233,9 +233,7 @@ class MemoRepositoryTest {
         val repo = repo(engine, FakeMemoDao())
 
         repo.uploadAttachment(
-            bytes = byteArrayOf(1, 2, 3),
-            filename = "a.png",
-            type = "image/png",
+            source = attachmentSource(byteArrayOf(1, 2, 3), "a.png", "image/png"),
             memoName = null,
         )
 
@@ -250,7 +248,7 @@ class MemoRepositoryTest {
     @Test
     fun clearCache_empties_the_dao() = runTest {
         val dao = FakeMemoDao().also {
-            it.replaceAll(listOf(entity("memos/a"), entity("memos/b")))
+            it.upsertAll(listOf(entity("memos/a"), entity("memos/b")))
         }
         val repo = repo(MockEngine { fail("network must not be called") }, dao)
 
@@ -319,3 +317,19 @@ class MemoRepositoryTest {
         cachedAtEpochMs = 0,
     )
 }
+
+/**
+ * Wraps [bytes] as an [AttachmentSource] so the streaming upload path can be
+ * exercised from a test without a real `content://` provider. Each call to
+ * openSource replays from the start, matching a reopenable stream.
+ */
+private fun attachmentSource(
+    bytes: ByteArray,
+    filename: String,
+    type: String,
+): AttachmentSource = AttachmentSource(
+    filename = filename,
+    mimeType = type,
+    byteCount = bytes.size.toLong(),
+    openSource = { Buffer().apply { write(bytes) } },
+)

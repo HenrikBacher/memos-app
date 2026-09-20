@@ -26,6 +26,7 @@ import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.api.UpdateMemoRequest
 import nu.bacher.memos.data.api.memoUid
+import nu.bacher.memos.data.db.LocalMemoName
 import nu.bacher.memos.data.db.MemoDao
 import nu.bacher.memos.data.db.PendingActionDao
 import nu.bacher.memos.data.db.PendingActionEntity
@@ -61,18 +62,6 @@ class MemoRepository(
      */
     val pendingNames: Flow<Set<String>>
         get() = pendingActionDao.observePendingNames().mapFlow { it.toSet() }
-
-    private val _searchServedFromCache = MutableStateFlow(false)
-
-    /**
-     * True when the most recent search page was answered from the local cache
-     * because the server was unreachable — the list screen shows an "offline,
-     * cached results" notice off this.
-     *
-     * Single-consumer by construction: one list screen drives search at a
-     * time. Reset when a new search Pager is built, set by the fallback.
-     */
-    val searchServedFromCache: StateFlow<Boolean> = _searchServedFromCache.asStateFlow()
 
     // Match initialLoadSize to one server page so the first network call
     // delivers a full screen without the mediator immediately issuing an APPEND.
@@ -110,12 +99,16 @@ class MemoRepository(
      * When the server can't be reached at all, the first page falls back to a
      * LIKE scan of the cache instead of erroring out, so search still works on
      * a plane. Cached results are necessarily partial (the cache only holds
-     * pages already loaded) — [searchServedFromCache] tells the UI to say so.
+     * pages already loaded), so the returned [SearchStream] carries a flag the
+     * UI can use to say so — scoped to this one stream rather than parked on
+     * the repository, so it can't go stale or be read by the wrong consumer.
      */
-    fun searchMemosPagingData(query: String, tag: String? = null): Flow<PagingData<MemoDto>> {
+    fun searchMemos(query: String, tag: String? = null): SearchStream {
         val filter = buildSearchFilter(query, tag)
-        _searchServedFromCache.value = false
-        return Pager(
+        val escapedQuery = escapeLike(query.trim())
+        val escapedTag = tag?.takeIf { it.isNotBlank() }?.let(::escapeLike)
+        val servedFromCache = MutableStateFlow(false)
+        val pages = Pager(
             config = pagingConfig,
             pagingSourceFactory = {
                 MemoApiPagingSource(
@@ -123,16 +116,27 @@ class MemoRepository(
                     filter = filter,
                     offlineFallback = {
                         dao.searchCached(
-                            query = escapeLike(query.trim()),
-                            tag = tag?.takeIf { it.isNotBlank() }?.let(::escapeLike),
+                            query = escapedQuery,
+                            tag = escapedTag,
                             limit = CACHED_SEARCH_LIMIT,
                         ).map { it.toDto() }
-                            .also { _searchServedFromCache.value = true }
+                            .also { servedFromCache.value = true }
                     },
                 )
             },
         ).flow
+        return SearchStream(pages = pages, servedFromCache = servedFromCache.asStateFlow())
     }
+
+    /**
+     * A search's page stream plus whether it is currently being answered from
+     * the cache. The flag's lifetime matches the stream's, so a new search
+     * starts clean without anyone having to reset it.
+     */
+    data class SearchStream(
+        val pages: Flow<PagingData<MemoDto>>,
+        val servedFromCache: StateFlow<Boolean>,
+    )
 
     suspend fun get(name: String): MemoDto {
         val memo = api.getMemo(name.memoUid())
@@ -160,7 +164,7 @@ class MemoRepository(
         visibility: String = "PRIVATE",
         attachments: List<AttachmentDto> = emptyList(),
     ): MemoDto {
-        val tempName = "$TEMP_NAME_PREFIX${currentTimeMillis()}"
+        val tempName = "${LocalMemoName.PREFIX}${currentTimeMillis()}"
         val now = currentTimeMillis()
         val tempDto = MemoDto(
             name = tempName,
@@ -226,7 +230,7 @@ class MemoRepository(
         pinned: Boolean? = null,
         attachments: List<AttachmentDto>? = null,
     ): MemoDto {
-        if (name.startsWith(TEMP_NAME_PREFIX)) {
+        if (LocalMemoName.isLocal(name)) {
             return mergeIntoPendingCreate(name, content, visibility, state, pinned, attachments)
         }
         val prior = dao.get(name)
@@ -299,13 +303,15 @@ class MemoRepository(
     suspend fun uploadAttachment(
         source: AttachmentSource,
         memoName: String? = null,
-    ): AttachmentDto = api.createAttachment(
-        filename = source.filename,
-        type = source.mimeType,
-        byteCount = source.byteCount,
-        memo = memoName,
-        openSource = source.openSource,
-    )
+    ): AttachmentDto = try {
+        api.createAttachment(source = source, memo = memoName)
+    } catch (t: Throwable) {
+        // Unlike memo writes, there is no queue to fall back on: the bytes sit
+        // behind a URI we hold no durable claim to. Name that outcome here,
+        // where the policy lives, so callers map a type instead of each
+        // re-deriving it from a generic network error.
+        if (t.isRetriable()) throw AttachmentUploadUnavailable(t) else throw t
+    }
 
     /**
      * Optimistic delete. Cache row goes first; on API failure the row is
@@ -316,7 +322,7 @@ class MemoRepository(
      * reached the server.
      */
     suspend fun delete(name: String) {
-        if (name.startsWith(TEMP_NAME_PREFIX)) {
+        if (LocalMemoName.isLocal(name)) {
             withContext(NonCancellable) {
                 pendingActionDao.deleteByMemoName(name)
                 dao.delete(name)
@@ -385,10 +391,10 @@ class MemoRepository(
                 pendingActionDao.deleteById(action.id)
                 continue
             }
-            // Transient. Server-reached failures (5xx) count toward the
-            // poison cap; pure network failures only refresh the diagnostics.
+            // Transient. Only server-reached failures (5xx) count toward the
+            // poison cap; see burnsSyncBudget.
             val attempts =
-                if (error.classify() == ErrorKind.SERVER) action.attempts + 1 else action.attempts
+                if (error.burnsSyncBudget()) action.attempts + 1 else action.attempts
             if (attempts >= MAX_SYNC_ATTEMPTS) {
                 // Poison — drop it and let the rest of the queue through.
                 pendingActionDao.deleteById(action.id)
@@ -420,7 +426,7 @@ class MemoRepository(
     private suspend fun reconcileOrphanTempCreates(queued: List<PendingActionEntity>): Boolean {
         val queuedNames = queued.mapTo(mutableSetOf()) { it.memoName }
         val cutoff = currentTimeMillis() - ORPHAN_MIN_AGE_MS
-        val orphans = dao.tempRowsOlderThan(TEMP_NAME_PREFIX, cutoff)
+        val orphans = dao.tempRowsOlderThan(LocalMemoName.PREFIX, cutoff)
             .filter { it.name !in queuedNames }
         for (row in orphans) {
             val attachments = if (row.attachmentsJson.isEmpty()) emptyList()
@@ -629,8 +635,6 @@ class MemoRepository(
 
     companion object {
         private const val SERVER_PAGE_SIZE = 50
-        /** Prefix for client-issued temp names — see [create]. */
-        const val TEMP_NAME_PREFIX = "memos/local-"
         /** Server-failure replay rounds before a queued action is dropped as poison. */
         internal const val MAX_SYNC_ATTEMPTS = 5
         /** Minimum temp-row age before the orphan sweep may re-queue it. */
@@ -639,6 +643,13 @@ class MemoRepository(
         internal const val CACHED_SEARCH_LIMIT = 200
     }
 }
+
+/**
+ * Thrown when an attachment upload fails for a reason that *would* have been
+ * queued for replay had it been a memo write. There is no attachment queue, so
+ * the caller must tell the user the upload simply didn't happen.
+ */
+class AttachmentUploadUnavailable(cause: Throwable) : Exception(cause)
 
 /**
  * Escapes the LIKE metacharacters in a user-typed search term so `50%` matches

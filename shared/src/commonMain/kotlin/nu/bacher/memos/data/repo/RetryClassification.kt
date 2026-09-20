@@ -73,3 +73,18 @@ fun Throwable.isRetriable(): Boolean = when (classify()) {
     ErrorKind.NETWORK, ErrorKind.RATE_LIMIT, ErrorKind.SERVER -> true
     ErrorKind.AUTH, ErrorKind.OTHER -> false
 }
+
+/**
+ * Whether a failed replay should count against a queued action's poison
+ * budget (`MemoRepository.MAX_SYNC_ATTEMPTS`).
+ *
+ * Only a 5xx does: the server received the payload and choked on it, which is
+ * evidence about *this action*. An unreachable server or a rate limiter says
+ * nothing about the payload, so neither may burn the budget — stated here
+ * rather than as an equality check at the call site, so a future [ErrorKind]
+ * has to be classified deliberately instead of defaulting to "free retry".
+ */
+fun Throwable.burnsSyncBudget(): Boolean = when (classify()) {
+    ErrorKind.SERVER -> true
+    ErrorKind.NETWORK, ErrorKind.RATE_LIMIT, ErrorKind.AUTH, ErrorKind.OTHER -> false
+}

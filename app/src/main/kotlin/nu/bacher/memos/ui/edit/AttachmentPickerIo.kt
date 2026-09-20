@@ -1,13 +1,15 @@
 package nu.bacher.memos.ui.edit
 
+import android.content.ContentResolver
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import android.net.Uri
 import android.provider.OpenableColumns
+import java.io.OutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.io.RawSource
 import kotlinx.io.asSource
-import kotlinx.io.buffered
 import nu.bacher.memos.data.api.AttachmentSource
 
 /**
@@ -23,59 +25,52 @@ import nu.bacher.memos.data.api.AttachmentSource
  */
 internal suspend fun attachmentSourceFor(context: Context, uri: Uri): AttachmentSource? =
     withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
-        val meta = queryMeta(context, uri)
-        val filename = meta?.first ?: uri.lastPathSegment ?: "file"
-        val mime = resolver.getType(uri) ?: "application/octet-stream"
+        // Application-scoped: this resolver is captured by the returned
+        // openSource lambda, which outlives the picking screen (the upload
+        // runs on viewModelScope). An Activity's resolver would pin the
+        // destroyed Activity and its view hierarchy for the whole upload.
+        val resolver = context.applicationContext.contentResolver
+        val (metaName, metaSize) = queryMeta(resolver, uri)
 
-        // Providers may report no size (SIZE null, or a stream with no
-        // backing file). Content-Length has to be exact for the streamed
-        // upload, so measure it by draining a throwaway read rather than
-        // buffering the file to find out how big it is.
-        val size = meta?.second ?: measure(context, uri) ?: return@withContext null
-
-        val open: () -> RawSource = {
-            val stream = resolver.openInputStream(uri)
-                ?: error("could not open $uri")
-            stream.asSource()
-        }
-        // Fail here rather than at upload time if the URI can't be opened at all.
-        runCatching { open().close() }.getOrElse { return@withContext null }
+        // Content-Length has to be exact for the streamed upload. Most
+        // providers declare SIZE; for those that don't, the file descriptor
+        // usually knows, and only if that fails too do we resort to reading
+        // the whole thing once just to count it.
+        val size = metaSize ?: descriptorLength(resolver, uri) ?: measure(resolver, uri)
+            ?: return@withContext null
 
         AttachmentSource(
-            filename = filename,
-            mimeType = mime,
+            filename = metaName ?: uri.lastPathSegment ?: "file",
+            mimeType = resolver.getType(uri) ?: "application/octet-stream",
             byteCount = size,
-            openSource = open,
+            openSource = { resolver.openSource(uri) },
         )
     }
 
-/** Display name + size, either of which the provider may withhold. */
-private fun queryMeta(context: Context, uri: Uri): Pair<String?, Long?>? {
+private fun ContentResolver.openSource(uri: Uri): RawSource =
+    (openInputStream(uri) ?: error("could not open $uri")).asSource()
+
+/** Display name and size, either of which the provider may withhold. */
+private fun queryMeta(resolver: ContentResolver, uri: Uri): Pair<String?, Long?> {
     val projection = arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
-    return context.contentResolver.query(uri, projection, null, null, null)?.use { c ->
-        if (!c.moveToFirst()) return@use null
+    return resolver.query(uri, projection, null, null, null)?.use { c ->
+        if (!c.moveToFirst()) return@use null to null
         val nameIdx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         val sizeIdx = c.getColumnIndex(OpenableColumns.SIZE)
         val name = if (nameIdx >= 0 && !c.isNull(nameIdx)) c.getString(nameIdx) else null
         val size = if (sizeIdx >= 0 && !c.isNull(sizeIdx)) c.getLong(sizeIdx) else null
         name to size?.takeIf { it > 0 }
-    }
+    } ?: (null to null)
 }
 
-/** Counts the bytes behind [uri] without retaining them. */
-private fun measure(context: Context, uri: Uri): Long? = runCatching {
-    context.contentResolver.openInputStream(uri)?.use { stream ->
-        val source = stream.asSource().buffered()
-        val buf = ByteArray(DISCARD_BUFFER_BYTES)
-        var total = 0L
-        while (true) {
-            val n = source.readAtMostTo(buf, 0, buf.size)
-            if (n <= 0) break
-            total += n
-        }
-        total
+/** Size from the file descriptor — one binder call, no read. */
+private fun descriptorLength(resolver: ContentResolver, uri: Uri): Long? = runCatching {
+    resolver.openAssetFileDescriptor(uri, "r")?.use { fd ->
+        fd.length.takeIf { it != AssetFileDescriptor.UNKNOWN_LENGTH && it > 0 }
     }
 }.getOrNull()
 
-private const val DISCARD_BUFFER_BYTES = 64 * 1024
+/** Last resort: count the bytes behind [uri] without retaining them. */
+private fun measure(resolver: ContentResolver, uri: Uri): Long? = runCatching {
+    resolver.openInputStream(uri)?.use { it.transferTo(OutputStream.nullOutputStream()) }
+}.getOrNull()

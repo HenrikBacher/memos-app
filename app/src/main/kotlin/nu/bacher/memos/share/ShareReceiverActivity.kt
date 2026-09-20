@@ -13,8 +13,7 @@ import nu.bacher.memos.MainActivity
 import nu.bacher.memos.R
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.repo.MemoRepository
-import nu.bacher.memos.data.repo.ErrorKind
-import nu.bacher.memos.data.repo.classify
+import nu.bacher.memos.data.repo.AttachmentUploadUnavailable
 import nu.bacher.memos.ui.edit.MemoEditViewModel
 import nu.bacher.memos.ui.edit.attachmentSourceFor
 import org.koin.android.ext.android.inject
@@ -79,9 +78,8 @@ class ShareReceiverActivity : ComponentActivity() {
                 throw e
             } catch (t: Exception) {
                 // A text-only share still queues offline via create(); an
-                // attachment share can't, so say which failure this was
-                // instead of a blanket "couldn't save".
-                if (streams.isNotEmpty() && t.classify() == ErrorKind.NETWORK) {
+                // attachment upload can't, and the repository says so by type.
+                if (t is AttachmentUploadUnavailable) {
                     R.string.share_failed_attachment_offline
                 } else {
                     R.string.share_failed

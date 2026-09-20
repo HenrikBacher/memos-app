@@ -12,6 +12,7 @@ import nu.bacher.memos.data.api.AttachmentSource
 import nu.bacher.memos.data.api.memoUid
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.ReminderEntity
+import nu.bacher.memos.data.repo.AttachmentUploadUnavailable
 import nu.bacher.memos.data.repo.ErrorKind
 import nu.bacher.memos.data.repo.MemoRepository
 import nu.bacher.memos.data.repo.ReminderRepository
@@ -160,10 +161,10 @@ class MemoEditViewModel(
      * The size gate runs against the *declared* size before anything is read,
      * so an oversized pick costs nothing.
      *
-     * Unlike memo writes, this has no offline queue: the bytes live behind a
-     * `content://` URI we have no durable claim on, so there's nothing safe to
-     * replay later. A network failure here reports [EditError.ATTACHMENT_OFFLINE]
-     * rather than pretending the upload is pending.
+     * Unlike memo writes, this has no offline queue — the repository says so
+     * by throwing [AttachmentUploadUnavailable], which maps to
+     * [EditError.ATTACHMENT_OFFLINE] rather than pretending the upload is
+     * pending.
      */
     fun addAttachment(source: AttachmentSource) {
         if (source.byteCount > MAX_ATTACHMENT_BYTES) {
@@ -180,7 +181,7 @@ class MemoEditViewModel(
                 },
                 onFailure = { t ->
                     if (t is CancellationException) throw t
-                    val error = if (t.classify() == ErrorKind.NETWORK) {
+                    val error = if (t is AttachmentUploadUnavailable) {
                         EditError.ATTACHMENT_OFFLINE
                     } else {
                         t.toEditError()

@@ -79,6 +79,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -248,7 +249,13 @@ fun MemoListScreen(
             if (state.searchOffline) {
                 // Cached search results are necessarily partial — say so
                 // rather than let them read as the whole truth.
-                OfflineSearchNotice()
+                CardLabel(
+                    icon = Icons.Filled.CloudOff,
+                    text = stringResource(R.string.list_search_offline),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
             }
             val refreshing = pagingItems.loadState.refresh is LoadState.Loading
             PullToRefreshBox(
@@ -624,37 +631,15 @@ private fun MemoCard(
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             if (pinned) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.PushPin,
-                        contentDescription = stringResource(R.string.list_pinned),
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.size(4.dp))
-                    Text(
-                        stringResource(R.string.list_pinned),
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
+                CardLabel(
+                    icon = Icons.Filled.PushPin,
+                    text = stringResource(R.string.list_pinned),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
                 Spacer(Modifier.height(6.dp))
             }
             if (pendingSync) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.CloudOff,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.size(4.dp))
-                    Text(
-                        stringResource(R.string.list_sync_pending),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
+                CardLabel(Icons.Filled.CloudOff, stringResource(R.string.list_sync_pending))
                 Spacer(Modifier.height(6.dp))
             }
             // The markdown renderer lays out blocks (headers, lists, paragraphs)
@@ -715,50 +700,34 @@ private fun MemoCard(
             }
             if (reminder != null) {
                 Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.NotificationsActive,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.size(4.dp))
-                    val context = LocalContext.current
-                    val label = remember(reminder.triggerAtEpochMs) {
-                        reminderLabel(context, reminder.triggerAtEpochMs)
-                    }
-                    Text(
-                        label,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
+                val context = LocalContext.current
+                val label = remember(reminder.triggerAtEpochMs) {
+                    reminderLabel(context, reminder.triggerAtEpochMs)
                 }
+                CardLabel(Icons.Filled.NotificationsActive, label)
             }
         }
     }
 }
 
-/** Banner shown when search results came out of the cache, not the server. */
+/**
+ * Small icon + caption used for every status line on and around a memo card
+ * (pinned, sync pending, reminder, offline search).
+ */
 @Composable
-private fun OfflineSearchNotice() {
+private fun CardLabel(
+    icon: ImageVector,
+    text: String,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    modifier: Modifier = Modifier,
+) {
     Row(
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(
-            Icons.Filled.CloudOff,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(14.dp),
-        )
-        Text(
-            stringResource(R.string.list_search_offline),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelSmall,
-        )
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
+        Text(text, color = tint, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -770,6 +739,6 @@ private fun OfflineSearchNotice() {
 private fun friendlyErrorMessage(t: Throwable): Int = when (t.classify()) {
     ErrorKind.NETWORK -> R.string.list_error_network
     ErrorKind.AUTH -> R.string.list_error_auth
-    ErrorKind.RATE_LIMIT -> R.string.list_error_busy
+    ErrorKind.RATE_LIMIT -> R.string.error_server_busy
     ErrorKind.SERVER, ErrorKind.OTHER -> R.string.list_error_generic
 }

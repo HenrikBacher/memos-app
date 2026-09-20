@@ -9,6 +9,7 @@ import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.api.MemoDto
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.MemosJson
+import nu.bacher.memos.data.db.LocalMemoName
 import nu.bacher.memos.data.db.MemoDao
 import nu.bacher.memos.data.db.MemoEntity
 import nu.bacher.memos.util.currentTimeMillis
@@ -67,15 +68,13 @@ class MemosRemoteMediator(
             val response = api.listMemos(pageToken = pageToken)
             val now = currentTimeMillis()
 
+            // Both DAO entry points assign orderInList themselves, so the
+            // value here is a placeholder either way.
+            val entities = response.memos.map { it.toEntity(orderInList = 0, cachedAtEpochMs = now) }
             if (loadType == LoadType.REFRESH) {
-                // replaceAll assigns orderInList itself (it has to offset past
-                // the surviving temp rows), so the value passed here is moot.
-                dao.replaceAll(
-                    memos = response.memos.map { it.toEntity(orderInList = 0, cachedAtEpochMs = now) },
-                    tempPrefix = MemoRepository.TEMP_NAME_PREFIX,
-                )
+                dao.replaceAll(memos = entities, tempPrefix = LocalMemoName.PREFIX)
             } else {
-                dao.appendAll(response.memos.map { it.toEntity(orderInList = 0, cachedAtEpochMs = now) })
+                dao.appendAll(entities)
             }
 
             nextPageToken = response.nextPageToken?.takeIf { it.isNotBlank() }

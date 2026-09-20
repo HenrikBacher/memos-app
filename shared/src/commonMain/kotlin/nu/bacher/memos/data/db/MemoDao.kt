@@ -31,12 +31,11 @@ interface MemoDao {
     suspend fun nextOrderIndex(): Int
 
     /**
-     * Client-side temp rows (unsynced creates), oldest-first by list position.
-     * Kept out of [replaceAll]'s delete so a server refresh can't wipe a memo
-     * that never reached the server.
+     * How many of [names] are not pinned. Lets a bulk pin decide its direction
+     * with one query instead of a point lookup per selected memo.
      */
-    @Query("SELECT * FROM memos WHERE name LIKE :tempPrefix || '%' ORDER BY orderInList ASC")
-    suspend fun tempRows(tempPrefix: String): List<MemoEntity>
+    @Query("SELECT COUNT(*) FROM memos WHERE name IN (:names) AND pinned = 0")
+    suspend fun unpinnedCount(names: List<String>): Int
 
     /**
      * Temp rows older than [cutoff] — the orphan sweep's input. Scoped in SQL
@@ -98,12 +97,15 @@ interface MemoDao {
      * permanently, for a row the orphan sweep hasn't adopted yet. They're
      * renumbered to the top and the server page continues the sequence after
      * them, matching where `insertAtTop` originally put them.
+     *
+     * After [deleteSynced] the only rows left *are* those temp rows, so
+     * [getAll] reads them back without needing a second prefix-scoped query.
      */
     @Transaction
     suspend fun replaceAll(memos: List<MemoEntity>, tempPrefix: String) {
         deleteSynced(tempPrefix)
-        val temps = tempRows(tempPrefix)
-        temps.forEachIndexed { i, row -> upsert(row.copy(orderInList = i)) }
+        val temps = getAll()
+        upsertAll(temps.mapIndexed { i, row -> row.copy(orderInList = i) })
         upsertAll(memos.mapIndexed { i, m -> m.copy(orderInList = temps.size + i) })
     }
 

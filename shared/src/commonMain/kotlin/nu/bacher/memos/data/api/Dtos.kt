@@ -78,5 +78,15 @@ data class ListMemosResponse(
     val nextPageToken: String? = null,
 )
 
+/**
+ * memos lifecycle states, as they appear on [MemoDto.state] and
+ * [UpdateMemoRequest.state]. The wire vocabulary lives here so the list, the
+ * widget and the pending-action payloads can't drift apart.
+ */
+object MemoState {
+    const val NORMAL: String = "NORMAL"
+    const val ARCHIVED: String = "ARCHIVED"
+}
+
 /** Extract the uid from a resource name like "memos/abc123" → "abc123". */
 fun String.memoUid(): String = substringAfter('/', this)

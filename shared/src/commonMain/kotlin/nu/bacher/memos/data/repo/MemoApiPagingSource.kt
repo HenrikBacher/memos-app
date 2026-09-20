@@ -29,7 +29,7 @@ import nu.bacher.memos.data.api.MemosApi
 class MemoApiPagingSource(
     private val api: MemosApi,
     private val filter: String?,
-    private val offlineFallback: suspend () -> List<MemoDto> = { emptyList() },
+    private val offlineFallback: suspend () -> List<MemoDto>,
 ) : PagingSource<String, MemoDto>() {
 
     override fun getRefreshKey(state: PagingState<String, MemoDto>): String? = null
