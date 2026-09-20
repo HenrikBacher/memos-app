@@ -113,10 +113,21 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6.3.0
         with:
-          cache-read-only: true
-          # This job is the one that actually has the keystore/publisher
-          # secrets in scope; read-only means it never writes cache entries,
-          # and the key encrypts anything it does read back.
+          # Same policy as the build job: only main writes. Mirrored as an
+          # expression rather than a bare `false` so that if this job is ever
+          # allowed to run on tags or another ref, it consumes the cache
+          # without polluting it.
+          #
+          # This job builds the release variant (R8, resource shrinking,
+          # bundling) that the build job never produces, so letting it write
+          # is what makes those outputs reusable across release runs.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          # REQUIRED here, not optional. This is the only job with the
+          # keystore and publisher secrets in scope, and app/build.gradle.kts
+          # reads them via System.getenv at *configuration* time — so a
+          # configuration-cache entry written by this job can contain them.
+          # Without a key those entries are stored unencrypted in the Actions
+          # cache, which anyone who can run a workflow in this repo can read.
           cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
 
       - name: Resolve version metadata
