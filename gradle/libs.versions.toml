@@ -33,7 +33,7 @@ paging = "3.5.1"
 aboutlibraries = "15.2.0"
 androidxTest = "1.7.0"
 benchmark = "1.5.0"
-uiautomator = "2.3.0"
+uiautomator = "2.4.0"
 profileinstaller = "1.4.1"
 
 [libraries]
