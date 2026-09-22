@@ -18,18 +18,6 @@
     <string name="login_error_auth">That token was rejected. Check it and try again.</string>
     <string name="login_error_server">The server had a problem. Try again shortly.</string>
     <string name="login_error_generic">Couldn\'t connect. Check the URL and token.</string>
-    <string name="login_or">or</string>
-    <string name="login_sso">Sign in with SSO</string>
-    <string name="login_sso_pick_provider">Choose a provider</string>
-    <string name="login_sso_cancel">Cancel</string>
-    <!-- %1$s is the app\'s OAuth redirect URI, e.g. nu.bacher.memos://oauth2redirect -->
-    <string name="login_sso_redirect_hint">Your identity provider must allow %1$s as a redirect URI.</string>
-    <string name="login_error_sso_not_configured">That server has no SSO provider set up. Use an access token instead.</string>
-    <string name="login_error_sso_unsupported">That server\'s version doesn\'t support SSO sign-in. Use an access token instead.</string>
-    <string name="login_error_sso_denied">Your identity provider turned down the sign-in.</string>
-    <string name="login_error_sso_failed">SSO sign-in didn\'t complete. Try again.</string>
-    <string name="login_error_sso_cancelled">SSO sign-in was cancelled.</string>
-    <string name="login_error_sso_no_browser">No browser available to open the sign-in page.</string>
 
     <string name="list_title">Memos</string>
     <string name="list_empty">No memos yet. Tap + to create one.</string>

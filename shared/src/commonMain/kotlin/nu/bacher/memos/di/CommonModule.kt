@@ -3,10 +3,8 @@ package nu.bacher.memos.di
 import io.ktor.client.engine.HttpClientEngineFactory
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.buildMemosHttpClient
-import nu.bacher.memos.data.api.buildPublicClient
 import nu.bacher.memos.data.api.buildVerificationClient
 import nu.bacher.memos.data.auth.AuthStore
-import nu.bacher.memos.data.auth.SsoAuthenticator
 import nu.bacher.memos.data.db.MemosDatabase
 import nu.bacher.memos.data.db.RemindersDatabase
 import nu.bacher.memos.data.repo.MemoRepository
@@ -44,17 +42,6 @@ fun commonModule(enableHttpLogging: Boolean = false) = module {
         )
     }
     singleOf(::MemosApi)
-
-    // Explicit lambda form, not singleOf: SsoAuthenticator has defaulted
-    // constructor params and Koin's reflective builders don't honor Kotlin
-    // defaults (same reason as the note further down this file).
-    single {
-        val engine = get<HttpClientEngineFactory<*>>()
-        SsoAuthenticator(
-            publicClientFactory = { url -> buildPublicClient(engine, url) },
-            bearerClientFactory = { url, token -> buildVerificationClient(engine, url, token) },
-        )
-    }
 
     single {
         val engine = get<HttpClientEngineFactory<*>>()

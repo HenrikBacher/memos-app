@@ -88,5 +88,22 @@ object MemoState {
     const val ARCHIVED: String = "ARCHIVED"
 }
 
-/** Extract the uid from a resource name like "memos/abc123" → "abc123". */
-fun String.memoUid(): String = substringAfter('/', this)
+/**
+ * Extract the uid from a resource name like "memos/abc123" → "abc123".
+ *
+ * The uid is spliced into API paths and names can arrive from outside the app
+ * (MainActivity is exported), so anything that isn't a plain uid is rejected:
+ * OkHttp resolves `..` segments, and `memos/../users/1` would otherwise
+ * address a different resource with the user's token.
+ */
+fun String.memoUid(): String {
+    val uid = substringAfter('/', this)
+    require(MEMO_UID.matches(uid)) { "Not a memo resource name" }
+    return uid
+}
+
+/** True for a resource name [memoUid] accepts in its `memos/{uid}` form. */
+fun isMemoName(name: String): Boolean =
+    name.startsWith("memos/") && MEMO_UID.matches(name.removePrefix("memos/"))
+
+private val MEMO_UID = Regex("[A-Za-z0-9_-]+")

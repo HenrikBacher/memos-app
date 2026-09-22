@@ -127,14 +127,11 @@ class LoginViewModelTest {
     private suspend fun LoginViewModel.awaitError(): LoginViewModel.LoginError =
         state.first { it.error != null }.error!!
 
-    private fun vm(engine: MockEngine): LoginViewModel =
-        vmWithStore(engine).first
-
-    private fun vmWithStore(engine: MockEngine): Pair<LoginViewModel, AuthStore> {
+    private fun vm(engine: MockEngine): LoginViewModel {
         val client = testHttpClient(engine)
         val authStore = AuthStore(MapSettings(), PlaintextSecretCipher)
         val repo = testMemoRepository(engine, verifyClient = client)
-        return LoginViewModel(authStore, repo, testSsoAuthenticator(engine)) to authStore
+        return LoginViewModel(authStore, repo)
     }
 
 }

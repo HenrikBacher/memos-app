@@ -20,7 +20,8 @@ import nu.bacher.memos.ui.edit.MemoEditViewModel
  * ContentResolver (see [nu.bacher.memos.data.api.StreamingAttachmentContent]),
  * which is what keeps a 20 MB attachment off the heap.
  *
- * Returns null if the URI can't be read at all. Every provider call is
+ * Returns null for URIs this app must not read on a caller's behalf (see
+ * [isForeignContentUri]) and for URIs that can't be read at all. Every provider call is
  * guarded: a revoked URI grant (resuming against a stale picker URI after
  * process death) throws SecurityException, and providers that dislike the
  * projection throw IllegalArgumentException — none of which should propagate
@@ -36,6 +37,13 @@ internal suspend fun attachmentSourceFor(
     uri: Uri,
     sizeLimit: Long = MemoEditViewModel.MAX_ATTACHMENT_BYTES,
 ): AttachmentSource? = withContext(Dispatchers.IO) {
+    // host, not authority: a "0@authority" user prefix is stripped by the
+    // resolver when it opens the URI, so it must not dodge the check either.
+    val provider = uri.host?.let { host ->
+        runCatching { context.packageManager.resolveContentProvider(host, 0)?.packageName }.getOrNull()
+    }
+    if (!isForeignContentUri(uri.scheme, provider, context.packageName)) return@withContext null
+
     // Application-scoped: this resolver is captured by the returned openSource
     // lambda, which outlives the picking screen (the upload runs on
     // viewModelScope). An Activity's resolver would pin the destroyed Activity
@@ -59,6 +67,17 @@ internal suspend fun attachmentSourceFor(
         openSource = { resolver.openSource(uri) },
     )
 }
+
+/**
+ * Only `content://` URIs served by some other app. Shared streams come from
+ * whatever app sent the intent, and this app's own identity can open both
+ * `file://` paths into its private storage and its own unexported
+ * providers — without this, any app could have it upload its database or
+ * auth prefs to the user's server. [providerPackage] is null when the
+ * provider isn't visible to us, which is never the case for our own.
+ */
+internal fun isForeignContentUri(scheme: String?, providerPackage: String?, ownPackage: String): Boolean =
+    scheme.equals(ContentResolver.SCHEME_CONTENT, ignoreCase = true) && providerPackage != ownPackage
 
 private fun ContentResolver.openSource(uri: Uri): RawSource =
     (openInputStream(uri) ?: error("could not open $uri")).asSource()

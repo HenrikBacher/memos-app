@@ -424,6 +424,20 @@ class MemoRepository(
     }
 
     /**
+     * [syncPending] for the fire-and-forget triggers (network regained, cold
+     * start). A failure here means offline or transient, and the actions stay
+     * queued for the next trigger.
+     */
+    suspend fun trySyncPending() {
+        try {
+            syncPending()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
      * Re-queues temp-named cache rows that have no matching pending action.
      * [create] inserts the optimistic temp row before the API call and only
      * enqueues in its failure handler — if the process dies in between (most
@@ -441,9 +455,7 @@ class MemoRepository(
         val orphans = dao.tempRowsOlderThan(LocalMemoName.PREFIX, cutoff)
             .filter { it.name !in queuedNames }
         for (row in orphans) {
-            val attachments = if (row.attachmentsJson.isEmpty()) emptyList()
-            else MemosJson.decodeFromString(AttachmentListSerializer, row.attachmentsJson)
-            enqueuePendingCreate(row.name, row.content, row.visibility, attachments)
+            enqueuePendingCreate(row.name, row.content, row.visibility, decodeAttachments(row.attachmentsJson))
         }
         return orphans.isNotEmpty()
     }
@@ -529,16 +541,10 @@ class MemoRepository(
             visibility = visibility,
             attachmentNames = attachments.map { it.name },
         )
-        pendingActionDao.insert(
-            PendingActionEntity(
-                type = PendingActionType.CREATE.storedValue,
-                memoName = tempName,
-                payloadJson = MemosJson.encodeToString(
-                    PendingPayload.Create.serializer(),
-                    payload,
-                ),
-                createdAtEpochMs = currentTimeMillis(),
-            ),
+        enqueue(
+            PendingActionType.CREATE,
+            tempName,
+            MemosJson.encodeToString(PendingPayload.Create.serializer(), payload),
         )
     }
 
@@ -566,16 +572,10 @@ class MemoRepository(
             pinned = pinned ?: prior?.pinned,
             attachmentNames = attachments?.map { it.name } ?: prior?.attachmentNames,
         )
-        pendingActionDao.insert(
-            PendingActionEntity(
-                type = PendingActionType.UPDATE.storedValue,
-                memoName = name,
-                payloadJson = MemosJson.encodeToString(
-                    PendingPayload.Update.serializer(),
-                    payload,
-                ),
-                createdAtEpochMs = currentTimeMillis(),
-            ),
+        enqueue(
+            PendingActionType.UPDATE,
+            name,
+            MemosJson.encodeToString(PendingPayload.Update.serializer(), payload),
         )
     }
 
@@ -586,11 +586,15 @@ class MemoRepository(
         // short-circuits before reaching this path, but the broad sweep is
         // still cheap insurance against future paths that don't.)
         pendingActionDao.deleteByMemoName(name)
+        enqueue(PendingActionType.DELETE, name, MemosJson.encodeToString(String.serializer(), name))
+    }
+
+    private suspend fun enqueue(type: PendingActionType, memoName: String, payloadJson: String) {
         pendingActionDao.insert(
             PendingActionEntity(
-                type = PendingActionType.DELETE.storedValue,
-                memoName = name,
-                payloadJson = MemosJson.encodeToString(String.serializer(), name),
+                type = type.storedValue,
+                memoName = memoName,
+                payloadJson = payloadJson,
                 createdAtEpochMs = currentTimeMillis(),
             ),
         )
@@ -614,9 +618,7 @@ class MemoRepository(
         val newContent = content ?: prior.content
         val newVisibility = visibility ?: prior.visibility
         val newState = state ?: prior.state
-        val priorAttachments = if (prior.attachmentsJson.isEmpty()) emptyList()
-        else MemosJson.decodeFromString(AttachmentListSerializer, prior.attachmentsJson)
-        val newAttachments = attachments ?: priorAttachments
+        val newAttachments = attachments ?: decodeAttachments(prior.attachmentsJson)
 
         val optimistic = prior.copy(
             content = newContent,
@@ -697,10 +699,6 @@ class AttachmentUploadUnavailable(cause: Throwable) : Exception(cause)
  */
 internal fun escapeLike(raw: String): String =
     raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-private fun encodeAttachments(attachments: List<AttachmentDto>): String =
-    if (attachments.isEmpty()) ""
-    else MemosJson.encodeToString(AttachmentListSerializer, attachments)
 
 /**
  * Builds the memos v1 `filter` query expression for a search. Returns null

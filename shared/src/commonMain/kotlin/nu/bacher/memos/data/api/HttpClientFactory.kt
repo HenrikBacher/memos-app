@@ -12,6 +12,7 @@ import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.ktor.http.URLBuilder
 import io.ktor.http.URLProtocol
+import io.ktor.http.Url
 import io.ktor.http.takeFrom
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -38,14 +39,7 @@ fun buildMemosHttpClient(
     authStore: AuthStore,
     enableLogging: Boolean = false,
 ): HttpClient = HttpClient(engine) {
-    expectSuccess = true
-    // Don't follow redirects: a 30x to a host other than the user's Memos
-    // server would otherwise re-issue the request with the bearer token
-    // attached. Memos doesn't redirect in normal operation; fail loudly if
-    // the server starts doing so.
-    followRedirects = false
-
-    install(ContentNegotiation) { json(MemosJson) }
+    configureApiClient()
 
     if (enableLogging) {
         install(Logging) {
@@ -59,7 +53,6 @@ fun buildMemosHttpClient(
             ?: error("Not logged in to memos — open the app and sign in again")
         pointAtServer(config.serverUrl)
         header(HttpHeaders.Authorization, "Bearer ${config.token}")
-        header(HttpHeaders.Accept, "application/json")
     }
 }
 
@@ -81,9 +74,9 @@ fun buildImageHttpClient(
     // Coil expects to see 4xx/5xx itself (it surfaces them through its own
     // error path); don't translate them into exceptions here.
     expectSuccess = false
-    // Follow redirects within the memos host so signed-URL bounces work; if
-    // a redirect crosses hosts the plugin below simply won't attach the
-    // token on the next hop.
+    // Follow redirects so signed-URL bounces work. Ktor's redirect handling
+    // drops Authorization when a hop leaves the origin (ImageHttpClientTest
+    // pins that), so the token doesn't follow to a CDN.
     followRedirects = true
 
     install(memosImageAuthPlugin(authStore))
@@ -93,12 +86,21 @@ private fun memosImageAuthPlugin(authStore: AuthStore) =
     createClientPlugin("MemosImageAuth") {
         onRequest { request, _ ->
             val config = authStore.read() ?: return@onRequest
-            val serverHost = URLBuilder().takeFrom(config.serverUrl.trimEnd('/')).host
-            if (request.url.host.equals(serverHost, ignoreCase = true)) {
+            if (request.url.build().isSameOriginAs(Url(config.serverUrl.trimEnd('/')))) {
                 request.headers.append(HttpHeaders.Authorization, "Bearer ${config.token}")
             }
         }
     }
+
+/**
+ * Scheme, host and port all match. Host alone isn't enough: another service
+ * on a different port of the same machine, or a plain-http URL to the same
+ * host, must not be handed the token.
+ */
+private fun Url.isSameOriginAs(other: Url): Boolean =
+    protocol == other.protocol &&
+        host.equals(other.host, ignoreCase = true) &&
+        port == other.port
 
 /**
  * Build a one-shot HttpClient against a specific server/token, used by login
@@ -109,40 +111,31 @@ fun buildVerificationClient(
     serverUrl: String,
     token: String,
 ): HttpClient = HttpClient(engine) {
-    expectSuccess = true
-    followRedirects = false
-    install(ContentNegotiation) { json(MemosJson) }
+    configureApiClient()
     install(DefaultRequest) {
         pointAtServer(serverUrl)
         header(HttpHeaders.Authorization, "Bearer $token")
-        header(HttpHeaders.Accept, "application/json")
     }
 }
 
-/**
- * Build a one-shot HttpClient against a specific server with no credentials
- * attached, for the memos endpoints on the server's unauthenticated
- * allowlist — `ListIdentityProviders` and the SSO `SignIn`, both of which the
- * login screen must reach *before* there is any token to store.
- */
-fun buildPublicClient(
-    engine: HttpClientEngineFactory<*>,
-    serverUrl: String,
-): HttpClient = HttpClient(engine) {
+/** What every client talking to the memos JSON API has in common. */
+private fun HttpClientConfig<*>.configureApiClient() {
     expectSuccess = true
+    // Don't follow redirects: a 30x to a host other than the user's Memos
+    // server would otherwise re-issue the request with the bearer token
+    // attached. Memos doesn't redirect in normal operation; fail loudly if
+    // the server starts doing so.
     followRedirects = false
     install(ContentNegotiation) { json(MemosJson) }
-    install(DefaultRequest) {
-        pointAtServer(serverUrl)
-        header(HttpHeaders.Accept, "application/json")
-    }
 }
 
 /**
  * Rewrite the request's scheme/host/port to [serverUrl] so call sites pass
- * bare paths. A non-default port is carried over; 80/443 is left implicit.
+ * bare paths, and ask for JSON. A non-default port is carried over; 80/443 is
+ * left implicit.
  */
 private fun DefaultRequest.DefaultRequestBuilder.pointAtServer(serverUrl: String) {
+    header(HttpHeaders.Accept, "application/json")
     val parsed = URLBuilder().takeFrom(serverUrl.trimEnd('/'))
     url {
         protocol = parsed.protocol

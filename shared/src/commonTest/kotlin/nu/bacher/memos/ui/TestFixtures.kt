@@ -41,6 +41,10 @@ internal class FakeReminderDao : ReminderDao {
     override suspend fun delete(memoName: String) {
         state.update { current -> current.filterNot { it.memoName == memoName } }
     }
+
+    override suspend fun deleteAll() {
+        state.value = emptyList()
+    }
 }
 
 /** Records what would have been scheduled, without touching AlarmManager. */

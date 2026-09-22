@@ -95,8 +95,6 @@ class MemoListViewModel(
         reminderRepo.observeAll()
             .map { list -> list.associateBy { it.memoName } }
             .distinctUntilChanged()
-    private val pendingNames: Flow<Set<String>> = memoRepo.pendingNames
-    private val syncFailedNames: Flow<Set<String>> = memoRepo.syncFailedNames
 
     /**
      * Tag set is derived from the *cached* memos (whatever pages are in the
@@ -214,7 +212,7 @@ class MemoListViewModel(
     )
 
     private val badges: Flow<Badges> =
-        combine(reminderMap, pendingNames, syncFailedNames, ::Badges).distinctUntilChanged()
+        combine(reminderMap, memoRepo.pendingNames, memoRepo.syncFailedNames, ::Badges).distinctUntilChanged()
 
     /**
      * Paged memos for the screen: cached pages, decorated with the tag filter
@@ -242,17 +240,7 @@ class MemoListViewModel(
         // Cold-start flush — if the previous session left actions queued,
         // try to push them now that we're online (or fail fast and stay
         // queued).
-        viewModelScope.launch { trySyncPending() }
-    }
-
-    private suspend fun trySyncPending() {
-        try {
-            memoRepo.syncPending()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // Offline / transient — leave actions queued.
-        }
+        viewModelScope.launch { memoRepo.trySyncPending() }
     }
 
     fun setQuery(q: String) {

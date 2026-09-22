@@ -109,7 +109,14 @@ class MemosRemoteMediator(
     }
 }
 
-internal val AttachmentListSerializer = ListSerializer(AttachmentDto.serializer())
+private val AttachmentListSerializer = ListSerializer(AttachmentDto.serializer())
+
+/** [MemoEntity.attachmentsJson] encoding: empty string for no attachments. */
+internal fun encodeAttachments(attachments: List<AttachmentDto>): String =
+    if (attachments.isEmpty()) "" else MemosJson.encodeToString(AttachmentListSerializer, attachments)
+
+internal fun decodeAttachments(json: String): List<AttachmentDto> =
+    if (json.isEmpty()) emptyList() else MemosJson.decodeFromString(AttachmentListSerializer, json)
 
 internal fun MemoDto.toEntity(orderInList: Int, cachedAtEpochMs: Long): MemoEntity =
     MemoEntity(
@@ -124,8 +131,7 @@ internal fun MemoDto.toEntity(orderInList: Int, cachedAtEpochMs: Long): MemoEnti
         displayTime = displayTime,
         creator = creator,
         tagsCsv = tags.joinToString(","),
-        attachmentsJson = if (attachments.isEmpty()) ""
-        else MemosJson.encodeToString(AttachmentListSerializer, attachments),
+        attachmentsJson = encodeAttachments(attachments),
         orderInList = orderInList,
         cachedAtEpochMs = cachedAtEpochMs,
     )
@@ -143,6 +149,5 @@ internal fun MemoEntity.toDto(): MemoDto =
         displayTime = displayTime,
         creator = creator,
         tags = if (tagsCsv.isEmpty()) emptyList() else tagsCsv.split(','),
-        attachments = if (attachmentsJson.isEmpty()) emptyList()
-        else MemosJson.decodeFromString(AttachmentListSerializer, attachmentsJson),
+        attachments = decodeAttachments(attachmentsJson),
     )

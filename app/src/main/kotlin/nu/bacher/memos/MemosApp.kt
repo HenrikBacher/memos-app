@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.api.buildImageHttpClient
@@ -59,6 +61,27 @@ class MemosApp : Application(), SingletonImageLoader.Factory {
         }
         NotificationHelper.createChannels(this)
         observeMemosForWidget()
+        clearImageCachesOnSignOut()
+    }
+
+    /**
+     * Drop cached attachment images whenever nobody is signed in, so the
+     * previous account's pictures don't outlive logout. Watching the auth
+     * state rather than hooking the logout button covers every way auth can
+     * be cleared, and a cold start while signed out clears leftovers too.
+     */
+    private fun clearImageCachesOnSignOut() {
+        appScope.launch(Dispatchers.IO) {
+            authStore.config
+                .map { it != null }
+                .distinctUntilChanged()
+                .filter { signedIn -> !signedIn }
+                .collect {
+                    val loader = SingletonImageLoader.get(this@MemosApp)
+                    loader.memoryCache?.clear()
+                    loader.diskCache?.clear()
+                }
+        }
     }
 
     /**

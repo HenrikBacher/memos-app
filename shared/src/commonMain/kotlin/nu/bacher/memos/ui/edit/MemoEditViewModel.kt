@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import nu.bacher.memos.data.api.AttachmentDto
 import nu.bacher.memos.data.api.AttachmentSource
+import nu.bacher.memos.data.api.isMemoName
 import nu.bacher.memos.data.api.memoUid
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.db.ReminderEntity
@@ -285,7 +286,7 @@ class MemoEditViewModel(
      * concern, so we don't gate the share button on visibility here.
      */
     fun shareUrl(): String? {
-        val name = _state.value.memoName ?: return null
+        val name = _state.value.memoName?.takeIf(::isMemoName) ?: return null
         val server = authStore.read()?.serverUrl ?: return null
         return "${server.trimEnd('/')}/m/${name.memoUid()}"
     }

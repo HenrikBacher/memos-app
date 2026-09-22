@@ -39,6 +39,12 @@ class ReminderRepository(
         dao.delete(memoName)
     }
 
+    /** Cancels every alarm and drops every row. Called on logout. */
+    suspend fun clearAll() {
+        for (r in dao.getAll()) scheduler.cancel(r.id)
+        dao.deleteAll()
+    }
+
     /** Called on boot — alarms don't survive reboot. */
     suspend fun rescheduleAll() {
         val now = currentTimeMillis()

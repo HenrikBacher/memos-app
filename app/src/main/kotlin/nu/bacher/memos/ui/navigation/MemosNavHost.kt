@@ -43,19 +43,6 @@ sealed interface NavLaunch {
 @Composable
 fun MemosNavHost(
     launch: NavLaunch = NavLaunch.None,
-    /**
-     * SSO callback URI from the identity provider, or null. Not a [NavLaunch]
-     * variant: it doesn't pick a destination, it completes work already in
-     * flight on the login screen.
-     */
-    ssoRedirect: String? = null,
-    /**
-     * Called once [ssoRedirect] has been handed to the login screen. Without
-     * it the value would sit in MainActivity for the life of the process and
-     * re-fire — a stale redirect greeting the user with a failure the next
-     * time they land on the login screen, after a logout.
-     */
-    onSsoRedirectConsumed: () -> Unit = {},
     rootViewModel: RootViewModel = koinViewModel(),
 ) {
     val navController = rememberNavController()
@@ -94,15 +81,11 @@ fun MemosNavHost(
         composable<Splash> { /* empty splash while we resolve auth */ }
 
         composable<Login> {
-            LoginScreen(
-                ssoRedirect = ssoRedirect,
-                onSsoRedirectConsumed = onSsoRedirectConsumed,
-                onLoggedIn = {
-                    navController.navigate(MemoList) {
-                        popUpTo<Login> { inclusive = true }
-                    }
-                },
-            )
+            LoginScreen(onLoggedIn = {
+                navController.navigate(MemoList) {
+                    popUpTo<Login> { inclusive = true }
+                }
+            })
         }
 
         composable<MemoList> {

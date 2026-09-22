@@ -2,11 +2,14 @@ package nu.bacher.memos.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import nu.bacher.memos.data.auth.AuthStore
 import nu.bacher.memos.data.repo.MemoRepository
+import nu.bacher.memos.data.repo.ReminderRepository
 import nu.bacher.memos.data.settings.ThemeMode
 import nu.bacher.memos.data.settings.ThemePreferences
 
@@ -14,6 +17,7 @@ class SettingsViewModel(
     private val themePrefs: ThemePreferences,
     private val authStore: AuthStore,
     private val memoRepo: MemoRepository,
+    private val reminderRepo: ReminderRepository,
 ) : ViewModel() {
 
     val theme = themePrefs.settingsFlow.stateIn(
@@ -27,12 +31,21 @@ class SettingsViewModel(
     fun setDynamicColor(enabled: Boolean) = themePrefs.setDynamicColor(enabled)
 
     /**
-     * Mirror of [nu.bacher.memos.ui.list.MemoListViewModel.logout]. Kept here
-     * so the settings screen can drive sign-out without a back-and-forth
-     * through the list view-model.
+     * Sign out and wipe everything the previous account left on the device.
+     *
+     * Auth is cleared first so no in-flight sync or refresh can refill the
+     * cache behind the wipe. That also navigates away and clears this
+     * ViewModel, so the whole sequence runs NonCancellable — otherwise the
+     * wipe could be cancelled halfway. Coil's image caches are cleared by
+     * MemosApp, which watches for the sign-out.
      */
     fun logout() {
-        viewModelScope.launch { memoRepo.clearCache() }
-        authStore.clear()
+        viewModelScope.launch {
+            withContext(NonCancellable) {
+                authStore.clear()
+                memoRepo.clearCache()
+                reminderRepo.clearAll()
+            }
+        }
     }
 }

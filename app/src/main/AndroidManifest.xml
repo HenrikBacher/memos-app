@@ -29,22 +29,6 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
-            <!--
-                SSO redirect target. Lands here rather than on a dedicated
-                activity because launchMode=singleTask already routes it to the
-                running instance via onNewIntent, which is where the rest of
-                this app's deep links are read. Must byte-match
-                SsoAuthenticator.REDIRECT_URI.
-            -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:host="oauth2redirect"
-                    android:scheme="nu.bacher.memos" />
-            </intent-filter>
         </activity>
 
         <activity

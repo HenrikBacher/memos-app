@@ -2,6 +2,7 @@ package nu.bacher.memos.data.api
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -18,6 +19,22 @@ class DtosTest {
         // substringAfter with a default returns the receiver when delimiter missing —
         // worth pinning so a future "throw on missing" change doesn't slip past.
         assertEquals("bareid", "bareid".memoUid())
+    }
+
+    @Test
+    fun memoUid_rejects_names_that_would_escape_the_memos_path() {
+        for (name in listOf("memos/../users/1", "memos/a/b", "memos/a?x=1", "memos/%2e%2e", "memos/")) {
+            assertFailsWith<IllegalArgumentException>(name) { name.memoUid() }
+        }
+    }
+
+    @Test
+    fun isMemoName_accepts_only_memos_resource_names() {
+        assertTrue(isMemoName("memos/abc123"))
+        assertTrue(isMemoName("memos/local-1700000000000"))
+        assertFalse(isMemoName("memos/../users/1"))
+        assertFalse(isMemoName("users/1"))
+        assertFalse(isMemoName("memos/"))
     }
 
     @Test
