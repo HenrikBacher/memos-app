@@ -36,7 +36,7 @@ jobs:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6.3.0
+        uses: gradle/actions/setup-gradle@v6.4.0
         with:
           # Only the main branch writes to the remote build cache; PR jobs
           # consume but don't pollute it.
@@ -111,7 +111,7 @@ jobs:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6.3.0
+        uses: gradle/actions/setup-gradle@v6.4.0
         with:
           # Same policy as the build job: only main writes. Mirrored as an
           # expression rather than a bare `false` so that if this job is ever
