@@ -11,7 +11,7 @@ jvmToolchain = "25"
 # and silently downloads it mid-build on every run. Pin it to what CI and the
 # dev container actually ship.
 buildTools = "37.0.0"
-kotlin = "2.4.20"
+kotlin = "2.4.21"
 ksp = "2.3.12"
 
 coreKtx = "1.19.1"
