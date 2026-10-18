@@ -9,7 +9,9 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A superseded PR run is cancelled; a push to main waits for the running one
+  # instead, so a release job is never killed halfway through a Play upload.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
