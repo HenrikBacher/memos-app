@@ -8,7 +8,7 @@ plugins {
     alias(libs.plugins.room) apply false
     alias(libs.plugins.android.test) apply false
     alias(libs.plugins.baselineprofile) apply false
-    id("io.github.ben-manes.versions") version "0.65.0"
+    id("io.github.ben-manes.versions") version "0.66.0"
 }
 
 tasks.named<com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask>("dependencyUpdates") {
