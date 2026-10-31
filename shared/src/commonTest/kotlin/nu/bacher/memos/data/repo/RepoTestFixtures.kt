@@ -11,6 +11,7 @@ import kotlin.test.fail
 import nu.bacher.memos.data.api.MemosApi
 import nu.bacher.memos.data.api.MemosJson
 import nu.bacher.memos.data.db.MemoEntity
+import nu.bacher.memos.ui.testReminderRepository
 
 /**
  * Shared harness for the repository and ViewModel suites. Each test file used
@@ -34,12 +35,14 @@ internal fun testMemoRepository(
     dao: FakeMemoDao = FakeMemoDao(),
     pendingDao: FakePendingActionDao = FakePendingActionDao(),
     verifyClient: HttpClient? = null,
+    reminders: ReminderRepository = testReminderRepository(),
 ): MemoRepository {
     val client = testHttpClient(engine)
     return MemoRepository(
         api = MemosApi(client),
         dao = dao,
         pendingActionDao = pendingDao,
+        reminderRepo = reminders,
         verifyClientFactory = { _, _ ->
             verifyClient ?: fail("verifyCreds is not exercised by this test")
         },

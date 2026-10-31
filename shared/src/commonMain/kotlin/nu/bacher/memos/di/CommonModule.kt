@@ -49,6 +49,7 @@ fun commonModule(enableHttpLogging: Boolean = false) = module {
             api = get(),
             dao = get(),
             pendingActionDao = get(),
+            reminderRepo = get(),
             verifyClientFactory = { url, token -> buildVerificationClient(engine, url, token) },
         )
     }

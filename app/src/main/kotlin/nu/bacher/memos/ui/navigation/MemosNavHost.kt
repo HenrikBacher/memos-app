@@ -2,7 +2,7 @@ package nu.bacher.memos.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -46,7 +46,7 @@ fun MemosNavHost(
     rootViewModel: RootViewModel = koinViewModel(),
 ) {
     val navController = rememberNavController()
-    val authState by rootViewModel.isAuthenticated.collectAsState()
+    val authState by rootViewModel.isAuthenticated.collectAsStateWithLifecycle()
 
     // Re-navigate on (auth-resolution, launch) changes. Two triggers:
     //   1. Initial auth resolution — pick the start destination.

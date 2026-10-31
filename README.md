@@ -81,8 +81,6 @@ App version metadata comes from Gradle properties, falling back to the defaults 
 ./gradlew :app:bundleRelease -PappVersionCode=42 -PappVersionName=1.2.3
 ```
 
-`./gradlew generatePlayIcon` rasterizes the adaptive launcher icon to the 512×512 PNG used in the Play listing under `app/src/main/play/`.
-
 ### Release signing
 
 Release builds pick up a signing config when these env vars are set (otherwise the APK/AAB is unsigned — there is no fallback keystore):
@@ -132,7 +130,7 @@ Caching is handled by `gradle/actions/setup-gradle` (Gradle home + build cache +
 ```
 .
 ├── app/                              :app (Android application)
-│   ├── build.gradle.kts              also: generatePlayIcon, play publisher config
+│   ├── build.gradle.kts              also: play publisher config
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── kotlin/nu/bacher/memos/

@@ -9,7 +9,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.http.HttpMethod
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import nu.bacher.memos.ui.FakeReminderDao
+import nu.bacher.memos.ui.testReminderRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -366,4 +371,68 @@ class OfflineQueueTest {
 
 
 
+
+    @Test
+    fun get_falls_back_to_cache_when_server_unreachable() = runTest {
+        val dao = FakeMemoDao().also { it.upsertAll(listOf(memoEntity("memos/x").copy(content = "cached"))) }
+        val repo = testMemoRepository(MockEngine { throw kotlinx.io.IOException("offline") }, dao)
+
+        assertEquals("cached", repo.get("memos/x").content)
+    }
+
+    @Test
+    fun get_of_unsynced_temp_memo_reads_cache_without_network() = runTest {
+        val name = "${LocalMemoName.PREFIX}1"
+        val dao = FakeMemoDao().also { it.upsertAll(listOf(memoEntity(name).copy(content = "draft"))) }
+        val repo = testMemoRepository(MockEngine { fail("temp memos must not hit the network") }, dao)
+
+        assertEquals("draft", repo.get(name).content)
+    }
+
+    @Test
+    fun concurrent_syncs_replay_a_queued_create_once() = runTest {
+        var creates = 0
+        var failFirst = true
+        val engine = MockEngine { request ->
+            if (request.method == HttpMethod.Post) creates++
+            if (failFirst) {
+                failFirst = false
+                respondError(HttpStatusCode.InternalServerError)
+            } else {
+                respond("""{"name":"memos/server-1","content":"hi"}""", HttpStatusCode.OK, jsonHeaders())
+            }
+        }
+        val pending = FakePendingActionDao()
+        val repo = testMemoRepository(engine, FakeMemoDao(), pending)
+        repo.create("hi")
+        creates = 0
+
+        // App open fires both the network callback and the list's cold-start flush.
+        coroutineScope {
+            launch { repo.syncPending() }
+            launch { repo.syncPending() }
+        }
+
+        assertEquals(1, creates, "queued CREATE must reach the server exactly once")
+        assertEquals(0, pending.rows.size)
+    }
+
+    @Test
+    fun replayed_create_moves_reminder_from_temp_name_to_server_name() = runTest {
+        var calls = 0
+        val engine = MockEngine { _ ->
+            if (calls++ == 0) respondError(HttpStatusCode.InternalServerError)
+            else respond("""{"name":"memos/server-1","content":"hi"}""", HttpStatusCode.OK, jsonHeaders())
+        }
+        val reminderDao = FakeReminderDao()
+        val reminders = testReminderRepository(reminderDao)
+        val repo = testMemoRepository(engine, FakeMemoDao(), FakePendingActionDao(), reminders = reminders)
+        val temp = repo.create("hi")
+        reminders.setTimeReminder(temp.name, 1_000L)
+
+        repo.syncPending()
+
+        assertEquals(null, reminderDao.get(temp.name))
+        assertEquals(1_000L, reminderDao.get("memos/server-1")?.triggerAtEpochMs)
+    }
 }

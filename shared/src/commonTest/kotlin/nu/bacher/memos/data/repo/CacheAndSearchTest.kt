@@ -30,7 +30,7 @@ import nu.bacher.memos.data.db.PendingActionEntity
  *  - Abandoning a queued action also drops its temp row, so the orphan sweep
  *    can't resurrect it forever.
  *  - `searchCached` is the offline fallback's actual matcher.
- *  - `setPinned` writes through optimistically.
+ *  - pin-only `update` writes through optimistically.
  */
 class CacheAndSearchTest {
 
@@ -80,9 +80,11 @@ class CacheAndSearchTest {
         val dao = FakeMemoDao()
         dao.upsertAll(
             listOf(
-                memoEntity("memos/archived-a", order = 0).copy(state = MemoState.ARCHIVED),
-                memoEntity("memos/archived-b", order = 1).copy(state = MemoState.ARCHIVED),
-                memoEntity("memos/active", order = 2),
+                // Not at 0/1: a refresh that renumbered every row would put
+                // them there and still pass.
+                memoEntity("memos/active", order = 0),
+                memoEntity("memos/archived-a", order = 5).copy(state = MemoState.ARCHIVED),
+                memoEntity("memos/archived-b", order = 6).copy(state = MemoState.ARCHIVED),
             ),
         )
 
@@ -95,8 +97,8 @@ class CacheAndSearchTest {
         // The archived partition is untouched — same rows, same order. A
         // refresh that rewrote them would churn the other view's PagingSource
         // for no reason.
-        assertEquals(0, dao.get("memos/archived-a")!!.orderInList)
-        assertEquals(1, dao.get("memos/archived-b")!!.orderInList)
+        assertEquals(5, dao.get("memos/archived-a")!!.orderInList)
+        assertEquals(6, dao.get("memos/archived-b")!!.orderInList)
     }
 
     @Test
@@ -173,7 +175,7 @@ class CacheAndSearchTest {
     }
 
     @Test
-    fun setPinned_writes_through_and_updates_the_cache() = runTest {
+    fun pin_update_writes_through_and_updates_the_cache() = runTest {
         val engine = MockEngine { _ ->
             respond(
                 """{"name":"memos/x","content":"hi","pinned":true}""",
@@ -185,21 +187,21 @@ class CacheAndSearchTest {
         dao.upsertAll(listOf(memoEntity("memos/x").copy(pinned = false)))
         val repo = testMemoRepository(engine, dao)
 
-        val saved = repo.setPinned("memos/x", true)
+        val saved = repo.update("memos/x", pinned = true)
 
         assertTrue(saved.pinned)
         assertTrue(dao.get("memos/x")!!.pinned)
     }
 
     @Test
-    fun setPinned_queues_and_keeps_optimistic_pin_when_offline() = runTest {
+    fun pin_update_queues_and_keeps_optimistic_pin_when_offline() = runTest {
         val engine = MockEngine { _ -> respondError(HttpStatusCode.ServiceUnavailable) }
         val dao = FakeMemoDao()
         dao.upsertAll(listOf(memoEntity("memos/x").copy(pinned = false)))
         val pending = FakePendingActionDao()
         val repo = testMemoRepository(engine, dao, pending)
 
-        repo.setPinned("memos/x", true)
+        repo.update("memos/x", pinned = true)
 
         assertTrue(dao.get("memos/x")!!.pinned, "optimistic pin should stick")
         val queued = pending.rows.single()

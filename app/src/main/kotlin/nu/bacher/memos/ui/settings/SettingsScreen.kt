@@ -1,45 +1,44 @@
 package nu.bacher.memos.ui.settings
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import nu.bacher.memos.BuildConfig
 import nu.bacher.memos.R
 import nu.bacher.memos.data.settings.ThemeMode
@@ -54,7 +53,7 @@ fun SettingsScreen(
     onLoggedOut: () -> Unit,
     vm: SettingsViewModel = koinViewModel(),
 ) {
-    val theme by vm.theme.collectAsState()
+    val theme by vm.theme.collectAsStateWithLifecycle()
     var showLogoutConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -148,40 +147,20 @@ private fun SectionHeader(text: String) {
 
 @Composable
 private fun ThemeModeRow(current: ThemeMode, onSelect: (ThemeMode) -> Unit) {
-    var menuOpen by remember { mutableStateOf(false) }
-    Box {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { menuOpen = true }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.settings_theme), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    current.toLabel(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.settings_theme)) },
+        supportingContent = {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                ThemeMode.entries.forEachIndexed { i, mode ->
+                    SegmentedButton(
+                        selected = mode == current,
+                        onClick = { onSelect(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size),
+                    ) { Text(mode.toLabel()) }
+                }
             }
-            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            for (mode in ThemeMode.entries) {
-                DropdownMenuItem(
-                    text = { Text(mode.toLabel()) },
-                    trailingIcon = if (mode == current) {
-                        { Icon(Icons.Filled.Check, contentDescription = null) }
-                    } else null,
-                    onClick = {
-                        menuOpen = false
-                        onSelect(mode)
-                    },
-                )
-            }
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -194,87 +173,44 @@ private fun ThemeMode.toLabel(): String = when (this) {
 @Composable
 private fun SwitchRow(
     title: String,
-    summary: String?,
+    summary: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            if (summary != null) {
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(summary) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+        modifier = Modifier.toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange),
+    )
 }
 
 @Composable
-private fun NavRow(title: String, summary: String?, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
-        if (summary != null) {
-            Text(
-                summary,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+private fun NavRow(title: String, summary: String, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(summary) },
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }
 
 @Composable
 private fun InfoRow(title: String, value: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    ListItem(
+        headlineContent = { Text(title) },
+        trailingContent = { Text(value, style = MaterialTheme.typography.bodyMedium) },
+    )
 }
 
 @Composable
 private fun LogoutRow(onClick: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-    ) {
-        Icon(
-            Icons.AutoMirrored.Filled.Logout,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.error,
-        )
-        Text(
-            stringResource(R.string.settings_logout),
-            modifier = Modifier.padding(start = 16.dp),
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-    }
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.settings_logout)) },
+        leadingContent = { Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null) },
+        colors = ListItemDefaults.colors(
+            headlineColor = MaterialTheme.colorScheme.error,
+            leadingIconColor = MaterialTheme.colorScheme.error,
+        ),
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }

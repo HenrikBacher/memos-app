@@ -165,7 +165,7 @@ interface MemoDao {
     @Transaction
     suspend fun replaceAll(memos: List<MemoEntity>, tempPrefix: String, archived: Boolean) {
         deleteSynced(tempPrefix, archived)
-        val kept = getAll()
+        val kept = keptTempRows(tempPrefix, archived)
         upsertAll(kept.mapIndexed { i, row -> row.copy(orderInList = i) })
         upsertAll(memos.mapIndexed { i, m -> m.copy(orderInList = kept.size + i) })
     }

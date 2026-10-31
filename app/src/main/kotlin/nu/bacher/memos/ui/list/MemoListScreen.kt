@@ -1,6 +1,7 @@
 package nu.bacher.memos.ui.list
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,10 +17,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -66,7 +68,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
@@ -88,6 +90,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -97,8 +100,6 @@ import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
 import androidx.compose.ui.platform.LocalContext
 import nu.bacher.memos.R
-import nu.bacher.memos.data.api.AttachmentDto
-import nu.bacher.memos.data.db.ReminderEntity
 import nu.bacher.memos.data.repo.ErrorKind
 import nu.bacher.memos.data.repo.classify
 import nu.bacher.memos.data.settings.MemoLayout
@@ -116,14 +117,16 @@ fun MemoListScreen(
     onOpenSettings: () -> Unit,
     vm: MemoListViewModel = koinViewModel(),
 ) {
-    val state by vm.state.collectAsState()
-    val selectedNames by vm.selectedNames.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val selectedNames by vm.selectedNames.collectAsStateWithLifecycle()
     val pagingItems = vm.memos.collectAsLazyPagingItems()
     var menuOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val inSelectionMode = selectedNames.isNotEmpty()
+    val gridState = rememberLazyStaggeredGridState()
+    val fabExpanded = !gridState.canScrollBackward || gridState.lastScrolledBackward
 
     // Back exits selection mode before falling through to nav back.
     BackHandler(enabled = inSelectionMode) { vm.clearSelection() }
@@ -231,6 +234,7 @@ fun MemoListScreen(
                     onClick = onCreateMemo,
                     icon = { Icon(Icons.Filled.Add, null) },
                     text = { Text(stringResource(R.string.list_fab_new)) },
+                    expanded = fabExpanded,
                 )
             }
         },
@@ -266,6 +270,7 @@ fun MemoListScreen(
             ) {
                 MemoResultsBody(
                     pagingItems = pagingItems,
+                    gridState = gridState,
                     layout = state.layout,
                     query = state.query,
                     selectedTag = state.selectedTag,
@@ -471,6 +476,7 @@ private fun LayoutToggleButton(layout: MemoLayout, onToggle: (MemoLayout) -> Uni
 @Composable
 private fun MemoResultsBody(
     pagingItems: LazyPagingItems<MemoListViewModel.Row>,
+    gridState: LazyStaggeredGridState,
     layout: MemoLayout,
     query: String,
     selectedTag: String?,
@@ -511,67 +517,32 @@ private fun MemoResultsBody(
         return
     }
 
-    when (layout) {
-        MemoLayout.GRID -> LazyVerticalStaggeredGrid(
-            columns = StaggeredGridCells.Adaptive(160.dp),
-            contentPadding = PaddingValues(8.dp),
-            verticalItemSpacing = 8.dp,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            items(
-                count = pagingItems.itemCount,
-                key = pagingItems.itemKey { it.memo.name },
-                contentType = pagingItems.itemContentType { "memo" },
-            ) { index ->
-                val row = pagingItems[index] ?: return@items
-                RowMemoCard(row, selectedNames, onOpenMemo, onLongPressMemo)
-            }
-            if (pagingItems.loadState.append is LoadState.Loading) {
-                item { Spacer(Modifier.height(8.dp)) }
-            }
-        }
-        MemoLayout.LIST -> LazyColumn(
-            contentPadding = PaddingValues(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            // Cap + center the column on large screens so list rows don't stretch
-            // into unreadably wide cards; full-width on phones. (The grid above
-            // intentionally stays full-width and just gains columns.)
-            modifier = Modifier.fillMaxHeight().readableContentWidth(),
-        ) {
-            items(
-                count = pagingItems.itemCount,
-                key = pagingItems.itemKey { it.memo.name },
-                contentType = pagingItems.itemContentType { "memo" },
-            ) { index ->
-                val row = pagingItems[index] ?: return@items
-                RowMemoCard(row, selectedNames, onOpenMemo, onLongPressMemo)
-            }
-            if (pagingItems.loadState.append is LoadState.Loading) {
-                item { Spacer(Modifier.height(8.dp)) }
-            }
+    LazyVerticalStaggeredGrid(
+        state = gridState,
+        columns = if (layout == MemoLayout.GRID) StaggeredGridCells.Adaptive(160.dp)
+        else StaggeredGridCells.Fixed(1),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 88.dp),
+        verticalItemSpacing = 8.dp,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // List rows cap + center on large screens so cards don't stretch
+        // unreadably wide; the grid stays full-width and just gains columns.
+        modifier = if (layout == MemoLayout.GRID) Modifier.fillMaxSize()
+        else Modifier.fillMaxHeight().readableContentWidth(),
+    ) {
+        items(
+            count = pagingItems.itemCount,
+            key = pagingItems.itemKey { it.memo.name },
+            contentType = pagingItems.itemContentType { "memo" },
+        ) { index ->
+            val row = pagingItems[index] ?: return@items
+            MemoCard(
+                row = row,
+                selected = row.memo.name in selectedNames,
+                onClick = { onOpenMemo(row.memo.name) },
+                onLongClick = { onLongPressMemo(row.memo.name) },
+            )
         }
     }
-}
-
-@Composable
-private fun RowMemoCard(
-    row: MemoListViewModel.Row,
-    selectedNames: Set<String>,
-    onOpenMemo: (String) -> Unit,
-    onLongPressMemo: (String) -> Unit,
-) {
-    MemoCard(
-        content = row.memo.content,
-        attachments = row.memo.attachments,
-        reminder = row.reminder,
-        pendingSync = row.pendingSync,
-        syncFailed = row.syncFailed,
-        pinned = row.memo.pinned,
-        selected = row.memo.name in selectedNames,
-        onClick = { onOpenMemo(row.memo.name) },
-        onLongClick = { onLongPressMemo(row.memo.name) },
-    )
 }
 
 @Composable
@@ -605,16 +576,14 @@ private fun TagFilterRow(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MemoCard(
-    content: String,
-    attachments: List<AttachmentDto>,
-    reminder: ReminderEntity?,
-    pendingSync: Boolean,
-    syncFailed: Boolean,
-    pinned: Boolean,
+    row: MemoListViewModel.Row,
     selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val content = row.memo.content
+    val attachments = row.memo.attachments
+    val reminder = row.reminder
     // Card has no combined-click overload, so attach combinedClickable on the
     // Modifier and use the non-clickable Card constructor.
     // Cache the card background once for the fade gradient — it has to match
@@ -625,15 +594,13 @@ private fun MemoCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(CardDefaults.shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        colors = if (selected) {
-            CardDefaults.cardColors(containerColor = cardBg)
-        } else {
-            CardDefaults.cardColors()
-        },
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            if (pinned) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            if (row.memo.pinned) {
                 CardLabel(
                     icon = Icons.Filled.PushPin,
                     text = stringResource(R.string.list_pinned),
@@ -641,14 +608,14 @@ private fun MemoCard(
                 )
                 Spacer(Modifier.height(6.dp))
             }
-            if (syncFailed) {
+            if (row.syncFailed) {
                 CardLabel(
                     icon = Icons.Filled.ErrorOutline,
                     text = stringResource(R.string.list_sync_failed),
                     tint = MaterialTheme.colorScheme.error,
                 )
                 Spacer(Modifier.height(6.dp))
-            } else if (pendingSync) {
+            } else if (row.pendingSync) {
                 CardLabel(Icons.Filled.CloudOff, stringResource(R.string.list_sync_pending))
                 Spacer(Modifier.height(6.dp))
             }

@@ -17,9 +17,6 @@ interface ReminderDao {
     @Query("SELECT * FROM reminders WHERE memoName = :memoName LIMIT 1")
     suspend fun get(memoName: String): ReminderEntity?
 
-    @Query("SELECT * FROM reminders WHERE memoName = :memoName LIMIT 1")
-    fun observe(memoName: String): Flow<ReminderEntity?>
-
     /**
      * Inserts (or replaces, on a unique-index conflict) and returns the
      * auto-assigned row id. Callers use the id as the PendingIntent request

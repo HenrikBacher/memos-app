@@ -2,7 +2,6 @@ package nu.bacher.memos.ui
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import nu.bacher.memos.data.auth.SecretCipher
 import nu.bacher.memos.data.db.ReminderDao
@@ -27,9 +26,6 @@ internal class FakeReminderDao : ReminderDao {
 
     override suspend fun get(memoName: String): ReminderEntity? =
         state.value.firstOrNull { it.memoName == memoName }
-
-    override fun observe(memoName: String): Flow<ReminderEntity?> =
-        state.map { rows -> rows.firstOrNull { it.memoName == memoName } }
 
     override suspend fun upsert(reminder: ReminderEntity): Long {
         val id = if (reminder.id == 0) nextId++ else reminder.id

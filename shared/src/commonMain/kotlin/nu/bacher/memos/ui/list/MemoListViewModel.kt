@@ -283,7 +283,10 @@ class MemoListViewModel(
      * optimistic cache write either way and queues the network call for
      * later when offline.
      */
-    fun deleteSelected() = onSelection(skipLocal = false) { memoRepo.delete(it) }
+    fun deleteSelected() = onSelection(skipLocal = false) {
+        reminderRepo.clear(it)
+        memoRepo.delete(it)
+    }
 
     /**
      * Applies [op] to each selected memo, then exits selection mode. Failures
@@ -331,10 +334,10 @@ class MemoListViewModel(
      * server to archive yet, and the user would have to wait for the create
      * to flush before archiving meaningfully.
      */
-    fun archiveSelected() = onSelection { memoRepo.setState(it, MemoState.ARCHIVED) }
+    fun archiveSelected() = onSelection { memoRepo.update(it, state = MemoState.ARCHIVED) }
 
     /** Restores every selected memo to the active list. */
-    fun unarchiveSelected() = onSelection { memoRepo.setState(it, MemoState.NORMAL) }
+    fun unarchiveSelected() = onSelection { memoRepo.update(it, state = MemoState.NORMAL) }
 
     /**
      * Pins the selected memos, or unpins them when they're *all* already
@@ -349,7 +352,7 @@ class MemoListViewModel(
         // One COUNT decides the direction for the whole batch, rather than a
         // point lookup per memo.
         prepare = { names -> memoDao.unpinnedCount(names) > 0 },
-        op = { name, pin -> memoRepo.setPinned(name, pin) },
+        op = { name, pin -> memoRepo.update(name, pinned = pin) },
     )
 
     private fun tagMatches(memo: MemoDto, tag: String?): Boolean {

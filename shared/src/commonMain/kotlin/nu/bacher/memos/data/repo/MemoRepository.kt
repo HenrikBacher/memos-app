@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map as mapFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.serializer
 import nu.bacher.memos.data.api.AttachmentDto
@@ -54,6 +56,7 @@ class MemoRepository(
     private val api: MemosApi,
     private val dao: MemoDao,
     private val pendingActionDao: PendingActionDao,
+    private val reminderRepo: ReminderRepository,
     private val verifyClientFactory: (serverUrl: String, token: String) -> HttpClient,
 ) {
 
@@ -150,8 +153,21 @@ class MemoRepository(
         val servedFromCache: StateFlow<Boolean>,
     )
 
+    /**
+     * Fetches [name] fresh from the server, falling back to the cached row
+     * when the server can't be reached. Unsynced temp memos only exist in the
+     * cache, so they never hit the network.
+     */
     suspend fun get(name: String): MemoDto {
-        val memo = api.getMemo(name.memoUid())
+        if (LocalMemoName.isLocal(name)) {
+            return dao.get(name)?.toDto() ?: error("get($name): unsynced memo not in cache")
+        }
+        val memo = try {
+            api.getMemo(name.memoUid())
+        } catch (t: Throwable) {
+            if (!t.isRetriable()) throw t
+            return dao.get(name)?.toDto() ?: throw t
+        }
         val cached = dao.get(memo.name)
         dao.upsert(memo.toEntity(cached?.orderInList ?: Int.MAX_VALUE, currentTimeMillis()))
         return memo
@@ -167,9 +183,9 @@ class MemoRepository(
      * "save succeeded" UX still fires. On a non-retriable failure (4xx) the
      * temp row is removed and the exception propagates.
      *
-     * The reminder table doesn't reference temp ids (MemoEditViewModel holds
-     * the reminder in memory until the real memo name comes back), so the
-     * temp row never has dangling foreign references.
+     * A reminder set on a new memo is keyed to whatever name this returns —
+     * the temp name when offline. [applyPending] moves it to the server name
+     * once the queued CREATE lands.
      */
     suspend fun create(
         content: String,
@@ -286,21 +302,6 @@ class MemoRepository(
     }
 
     /**
-     * Convenience wrapper for state-only edits. Archiving a temp-named memo
-     * isn't supported (the memo doesn't exist on the server yet) — callers
-     * should filter those out at the UI layer.
-     */
-    suspend fun setState(name: String, state: String): MemoDto = update(name = name, state = state)
-
-    /**
-     * Convenience wrapper for pin-only edits. Like [setState], pinning a
-     * temp-named memo only sticks locally until the queued CREATE lands —
-     * memos' CreateMemoRequest carries no `pinned` field.
-     */
-    suspend fun setPinned(name: String, pinned: Boolean): MemoDto =
-        update(name = name, pinned = pinned)
-
-    /**
      * Uploads [source] as an attachment. When [memoName] is non-null the server
      * links the attachment to that memo immediately; for new memos pass null
      * here and reference the returned attachment by name in the next
@@ -375,9 +376,11 @@ class MemoRepository(
      *
      * Safe to call concurrently with user-driven create/update/delete:
      * actions are loaded once at the top, so a new enqueue mid-flush just
-     * gets picked up by the next sync.
+     * gets picked up by the next sync. Concurrent syncs are serialized —
+     * the network callback and the list's cold-start flush both fire on app
+     * open, and two flushes over the same queue would replay a CREATE twice.
      */
-    suspend fun syncPending() {
+    suspend fun syncPending(): Unit = syncMutex.withLock {
         val queued = pendingActionDao.getAll()
         // Re-read only if the sweep actually enqueued something; the common
         // case costs one query, not two.
@@ -502,6 +505,11 @@ class MemoRepository(
                 withContext(NonCancellable) {
                     dao.delete(action.memoName)
                     dao.insertAtTop(saved.toEntity(0, currentTimeMillis()))
+                    // A reminder set while offline is keyed to the temp name.
+                    reminderRepo.get(action.memoName)?.let {
+                        reminderRepo.clear(action.memoName)
+                        reminderRepo.setTimeReminder(saved.name, it.triggerAtEpochMs)
+                    }
                 }
             }
             PendingActionType.UPDATE -> {
@@ -673,6 +681,8 @@ class MemoRepository(
             client.close()
         }
     }
+
+    private val syncMutex = Mutex()
 
     companion object {
         private const val SERVER_PAGE_SIZE = 50

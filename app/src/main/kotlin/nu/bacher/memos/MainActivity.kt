@@ -7,7 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
             // already reflects the user's choice — collecting only the flow
             // would briefly render with defaults before swapping.
             val initial = remember { themePreferences.read() }
-            val theme by themePreferences.settingsFlow.collectAsState(initial = initial)
+            val theme by themePreferences.settingsFlow.collectAsStateWithLifecycle(initialValue = initial)
             MemosTheme(settings = theme) {
                 ProvideMemosUriHandler {
                     MemosNavHost(launch = navLaunch)

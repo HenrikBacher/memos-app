@@ -10,7 +10,6 @@ class ReminderRepository(
     private val dao: ReminderDao,
     private val scheduler: ReminderScheduler,
 ) {
-    fun observe(memoName: String): Flow<ReminderEntity?> = dao.observe(memoName)
     fun observeAll(): Flow<List<ReminderEntity>> = dao.observeAll()
     suspend fun get(memoName: String): ReminderEntity? = dao.get(memoName)
 
