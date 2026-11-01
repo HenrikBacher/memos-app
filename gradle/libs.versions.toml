@@ -1,5 +1,5 @@
 [versions]
-agp = "9.4.1"
+agp = "9.5.0"
 # SDK levels and toolchain live here, not hand-copied into each module's
 # build file — AGENTS.md makes this catalog the single source of truth for
 # versions, and a third module immediately drifted when they didn't.
