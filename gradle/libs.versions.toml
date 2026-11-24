@@ -3,7 +3,7 @@ agp = "9.5.2"
 # SDK levels and toolchain live here, not hand-copied into each module's
 # build file — AGENTS.md makes this catalog the single source of truth for
 # versions, and a third module immediately drifted when they didn't.
-compileSdk = "37"
+compileSdk = "37.2"
 targetSdk = "37"
 minSdk = "34"
 jvmToolchain = "25"
