@@ -11,7 +11,11 @@ kotlin {
 
     android {
         namespace = "nu.bacher.memos.shared"
-        compileSdk = libs.versions.compileSdk.get().toInt()
+        compileSdk {
+            version = release(libs.versions.compileSdk.get().toInt()) {
+                minorApiLevel = libs.versions.compileSdkMinor.get().toInt()
+            }
+        }
         minSdk = libs.versions.minSdk.get().toInt()
         buildToolsVersion = libs.versions.buildTools.get()
 

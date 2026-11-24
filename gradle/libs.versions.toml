@@ -3,7 +3,10 @@ agp = "9.5.2"
 # SDK levels and toolchain live here, not hand-copied into each module's
 # build file — AGENTS.md makes this catalog the single source of truth for
 # versions, and a third module immediately drifted when they didn't.
-compileSdk = "37.2"
+compileSdk = "37"
+# Minor API level on top of compileSdk (37.2). Compose BOM 2026.11+ requires
+# compiling against 37.1 or later.
+compileSdkMinor = "2"
 targetSdk = "37"
 minSdk = "34"
 jvmToolchain = "25"

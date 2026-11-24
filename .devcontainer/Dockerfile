@@ -4,7 +4,7 @@
 FROM eclipse-temurin:25-jdk-noble
 
 # --- Android SDK ---------------------------------------------------------
-# compileSdk = 37 (androidx.core 1.19.0 requires API 37); AGP 9.2.1 picks
+# compileSdk = 37.2 (Compose BOM 2026.11 requires API 37.1+); AGP 9.2.1 picks
 # build-tools 37.0.0. Keep these in sync with the *.build.gradle.kts files
 # and .github/workflows/build.yml.
 ENV ANDROID_HOME=/opt/android-sdk
@@ -12,7 +12,7 @@ ENV ANDROID_SDK_ROOT=${ANDROID_HOME}
 ENV ANDROID_USER_HOME=/home/vscode/.android
 
 ARG CMDLINE_TOOLS_VERSION=14742923
-ARG ANDROID_PLATFORM=platforms;android-37.0
+ARG ANDROID_PLATFORM=platforms;android-37.2
 ARG ANDROID_BUILD_TOOLS=build-tools;37.0.0
 
 # Tools needed to fetch/unpack the SDK; git/zip are handy inside the container.
